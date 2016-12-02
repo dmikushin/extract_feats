@@ -3,8 +3,9 @@ import os
 import shutil
 import stat
 import subprocess
-import time
 
+# File to extract features (mostly) automatically using the merlin speech
+# pipeline
 
 def copytree(src, dst, symlinks=False, ignore=None):
     if not os.path.exists(dst):
@@ -106,6 +107,7 @@ if not os.path.exists("database"):
     for sf in subfolders:
         wav_path = wav_partial_path + sf + "/*.wav"
         p = pe("cp %s ." % wav_path, shell=True)
+    # downsample the files
     convert = estdir + "bin/ch_wave $i -o tmp_$i -itype wav -otype wav -F 16000 -f 48000"
     pe("for i in *.wav; do echo %s; %s; mv tmp_$i $i; done" % (convert, convert), shell=True)
 
@@ -212,7 +214,7 @@ else:
         out_path = "txt.done.data"
         out_file = open(out_path, "w")
         subfolders = sorted(os.listdir(txt_partial_path))
-        # TODO: Avoid this
+        # TODO: Avoid this truncation and have an option to select subfolder(s)...
         subfolders = subfolders[:1]
 
         txt_ids = []
@@ -305,5 +307,5 @@ with open("edit_extract_features_for_merlin.sh", "w") as f:
     f.writelines(ex_lines)
 
 pe("bash edit_extract_features_for_merlin.sh", shell=True)
-print("Features in %s" % (merlin_dir + "/egs/slt_arctic/s1/slt_arctic_full_data/feat"))
-# prompt-utt
+print("Audio features in %s" % (merlin_dir + "/egs/slt_arctic/s1/slt_arctic_full_data/feat"))
+print("Text features in %s" % (merlin_dir + "/misc/scripts/alignment/phone_align/full-context-labels/full"))
