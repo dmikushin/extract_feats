@@ -7,6 +7,35 @@ import subprocess
 # File to extract features (mostly) automatically using the merlin speech
 # pipeline
 
+# Need to edit the conf...
+def replace_conflines(conf, warmup_sub="1", training_sub="1"):
+    te_sub = training_sub
+    we_sub = warmup_sub
+    match = "warmup_epoch"
+    replace = None
+    for n, l in enumerate(conf):
+        if l[:len(match)] == match:
+            replace = n
+            break
+    conf[replace] = "warmup_epoch     : %s\n" % te_sub
+
+    match = "training_epochs"
+    replace = None
+    for n, l in enumerate(conf):
+        if l[:len(match)] == match:
+            replace = n
+            break
+    conf[replace] = "training_epochs     : %s\n" % we_sub
+    return conf
+
+def replace_it(fpath):
+    with open(fpath, "r") as f:
+        conf = f.readlines()
+    conf = replace_conflines(conf)
+
+    with open(fpath, "w") as f:
+        f.writelines(conf)
+
 def copytree(src, dst, symlinks=False, ignore=None):
     if not os.path.exists(dst):
         os.makedirs(dst)
@@ -271,17 +300,36 @@ def extract_intermediate_features():
             pe("bash edit_run_aligner.sh config.cfg", shell=True)
 
 
-# compile vocoder
+    # compile vocoder
     os.chdir(merlin_dir)
     os.chdir("tools")
     if not os.path.exists("SPTK-3.9"):
         pe("bash compile_tools.sh", shell=True)
 
-# slt_arctic stuff
+    # slt_arctic stuff
     os.chdir(merlin_dir)
     os.chdir("egs/slt_arctic/s1")
+
+    global_config_file = "conf/global_settings.cfg"
+    # This madness due to autogen configs...
+    pe("bash scripts/setup.sh slt_arctic_full", shell=True)
+    pe("bash scripts/prepare_config_files.sh %s" % global_config_file, shell=True)
+    pe("bash scripts/prepare_config_files_for_synthesis.sh %s" % global_config_file, shell=True)
+    # delete the setup lines from run_full_voice.sh
+    pe("sed -i.bak -e '11d;12d;13d' run_full_voice.sh", shell=True)
+
+    pushd = os.getcwd()
+    os.chdir("conf")
+
+
+    replace_it("duration_slt_arctic_full.conf")
+    replace_it("acoustic_slt_arctic_full.conf")
+
+    os.chdir(pushd)
     if not os.path.exists("slt_arctic_full_data"):
         pe("bash run_full_voice.sh", shell=True)
+
+    pe("mv run_full_voice.sh.bak run_full_voice.sh", shell=True)
 
     os.chdir(merlin_dir)
     os.chdir("misc/scripts/vocoder/world")
@@ -366,7 +414,6 @@ def extract_final_features():
     if not os.path.exists(basedir + "test_id_list.scp"):
         os.symlink(os.path.abspath(file_list_path), os.path.abspath(basedir + "test_id_list.scp"))
 
-
     # now copy in the data - don't symlink due to possibilities of inplace
     # modification
     os.chdir(expdir)
@@ -387,6 +434,17 @@ def extract_final_features():
     # IT USES HTS STYLE LABELS
     copytree(basedir + "text_feat", labeldatadir)
 
+    os.chdir(expdir)
+
+    global_config_file="conf/global_settings.cfg"
+    pe("bash scripts/prepare_config_files.sh %s" % global_config_file, shell=True)
+    pe("bash scripts/prepare_config_files_for_synthesis.sh %s" % global_config_file, shell=True)
+    replace_it("conf/acoustic_my_new_voice.conf")
+    replace_it("conf/duration_my_new_voice.conf")
+
+    pe("sed -i.bak -e '19d;20d;25,30d' 03_run_merlin.sh", shell=True)
+    pe("bash 03_run_merlin.sh", shell=True)
+    pe("mv 03_run_merlin.sh.bak 03_run_merlin.sh", shell=True)
     os.chdir(launchdir)
 
 
@@ -404,5 +462,5 @@ if __name__ == "__main__":
             if os.path.exists("audio_feat"):
                 os.remove("audio_feat")
             extract_intermediate_features()
-        extract_final_features()
-        print("NEXT STEP?")
+    extract_final_features()
+    print("NEXT STEP?")
