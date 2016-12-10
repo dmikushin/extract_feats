@@ -3,35 +3,30 @@ import os
 import shutil
 import stat
 import subprocess
+import time
 
 # File to extract features (mostly) automatically using the merlin speech
 # pipeline
+def subfolder_select(subfolders):
+    r = [sf for sf in subfolders if sf == "p294"]
+    if len(r) == 0:
+        raise ValueError("Error: subfolder_select failed")
+    return r
 
 # Need to edit the conf...
-def replace_conflines(conf, warmup_sub="1", training_sub="1"):
-    te_sub = training_sub
-    we_sub = warmup_sub
-    match = "warmup_epoch"
+def replace_conflines(conf, match, sub):
     replace = None
     for n, l in enumerate(conf):
         if l[:len(match)] == match:
             replace = n
             break
-    conf[replace] = "warmup_epoch     : %s\n" % te_sub
-
-    match = "training_epochs"
-    replace = None
-    for n, l in enumerate(conf):
-        if l[:len(match)] == match:
-            replace = n
-            break
-    conf[replace] = "training_epochs     : %s\n" % we_sub
+    conf[replace] = "%s: %s\n" % (match, sub)
     return conf
 
-def replace_it(fpath):
+def replace_write(fpath, match, sub):
     with open(fpath, "r") as f:
         conf = f.readlines()
-    conf = replace_conflines(conf)
+    conf = replace_conflines(conf, match, sub)
 
     with open(fpath, "w") as f:
         f.writelines(conf)
@@ -115,6 +110,7 @@ def extract_intermediate_features():
         os.mkdir(latest_feature_dir)
 
     os.chdir(latest_feature_dir)
+    latest_feature_dir = os.getcwd()
 
     if not os.path.exists("merlin"):
         clone_cmd = "git clone https://github.com/kastnerkyle/merlin"
@@ -132,8 +128,8 @@ def extract_intermediate_features():
         # Copy in wav files
         wav_partial_path = vctkdir + "wav48/"
         subfolders = sorted(os.listdir(wav_partial_path))
-        # only p225 for now...
-        subfolders = subfolders[:1]
+        # only p294 for now...
+        subfolders = subfolder_select(subfolders)
         os.chdir("database/wav")
         for sf in subfolders:
             wav_path = wav_partial_path + sf + "/*.wav"
@@ -145,12 +141,12 @@ def extract_intermediate_features():
         os.chdir(experiment_dir)
         txt_partial_path = vctkdir + "txt/"
         subfolders = sorted(os.listdir(txt_partial_path))
-        # only p225 for now...
-        subfolders = subfolders[:1]
+        # only p294 for now...
+        subfolders = subfolder_select(subfolders)
         os.chdir("database/txt")
         for sf in subfolders:
             txt_path = txt_partial_path + sf + "/*.txt"
-            p = pe("cp %s ." % txt_path, shell=True)
+            pe("cp %s ." % txt_path, shell=True)
 
     do_state_align = False
     if do_state_align:
@@ -246,7 +242,7 @@ def extract_intermediate_features():
             out_file = open(out_path, "w")
             subfolders = sorted(os.listdir(txt_partial_path))
             # TODO: Avoid this truncation and have an option to select subfolder(s)...
-            subfolders = subfolders[:1]
+            subfolders = subfolder_select(subfolders)
 
             txt_ids = []
             for sf in subfolders:
@@ -264,6 +260,8 @@ def extract_intermediate_features():
                         txt_ids.append(name)
                         out_file.writelines(format_info_tup(info_tup))
             out_file.close()
+            pe("cp %s %s/txt.done.data" % (out_path, latest_feature_dir),
+               shell=True)
             os.chdir(cwd)
 
             replace_line = None
@@ -283,7 +281,7 @@ def extract_intermediate_features():
             os.chdir("wav")
             for sf in subfolders:
                 wav_path = wav_partial_path + "/*.wav"
-                p = pe("cp %s ." % wav_path, shell=True)
+                pe("cp %s ." % wav_path, shell=True)
             os.chdir(cwd)
 
             replace_line = None
@@ -321,9 +319,10 @@ def extract_intermediate_features():
     pushd = os.getcwd()
     os.chdir("conf")
 
-
-    replace_it("duration_slt_arctic_full.conf")
-    replace_it("acoustic_slt_arctic_full.conf")
+    replace_write("duration_slt_arctic_full.conf", "training_epochs", "1")
+    replace_write("duration_slt_arctic_full.conf", "warmup_epoch", "1")
+    replace_write("acoustic_slt_arctic_full.conf", "training_epochs", "1")
+    replace_write("acoustic_slt_arctic_full.conf", "warmup_epoch", "1")
 
     os.chdir(pushd)
     if not os.path.exists("slt_arctic_full_data"):
@@ -431,20 +430,65 @@ def extract_final_features():
     if not os.path.exists(labeldatadir):
         os.mkdir(labeldatadir)
 
+    bapdatadir = "acoustic_model/data/bap"
+    if not os.path.exists(bapdatadir):
+        os.mkdir(bapdatadir)
+
+    lf0datadir = "acoustic_model/data/lf0"
+    if not os.path.exists(lf0datadir):
+        os.mkdir(lf0datadir)
+
+    mgcdatadir = "acoustic_model/data/mgc"
+    if not os.path.exists(mgcdatadir):
+        os.mkdir(mgcdatadir)
+
     # IT USES HTS STYLE LABELS
     copytree(basedir + "text_feat", labeldatadir)
+    copytree(basedir + "audio_feat/bap", bapdatadir)
+    copytree(basedir + "audio_feat/lf0", lf0datadir)
+    copytree(basedir + "audio_feat/mgc", mgcdatadir)
+    #pe("cp %s acoustic_model/data" % label_norm_HTS_420.dat)
+
+    while len(os.listdir(mgcdatadir)) < len(os.listdir(basedir + "audio_feat/mgc")):
+        print("waiting for mgc file copy to complete...")
+        time.sleep(3)
+
+    while len(os.listdir(lf0datadir)) < len(os.listdir(basedir + "audio_feat/lf0")):
+        print("waiting for lf0 file copy to complete...")
+        time.sleep(3)
+
+    while len(os.listdir(bapdatadir)) < len(os.listdir(basedir + "audio_feat/bap")):
+        print("waiting for bap file copy to complete...")
+        time.sleep(3)
 
     os.chdir(expdir)
 
     global_config_file="conf/global_settings.cfg"
     pe("bash scripts/prepare_config_files.sh %s" % global_config_file, shell=True)
     pe("bash scripts/prepare_config_files_for_synthesis.sh %s" % global_config_file, shell=True)
-    replace_it("conf/acoustic_my_new_voice.conf")
-    replace_it("conf/duration_my_new_voice.conf")
 
-    pe("sed -i.bak -e '19d;20d;25,30d' 03_run_merlin.sh", shell=True)
-    pe("bash 03_run_merlin.sh", shell=True)
+    replace_write("conf/acoustic_my_new_voice.conf", "dmgc", "60")
+    replace_write("conf/acoustic_my_new_voice.conf", "dbap", "1")
+    # hack this to add an extra line in the config
+    replace_write("conf/acoustic_my_new_voice.conf", "dlf0", "1\ndo_MLPG: False")
+    replace_write("conf/acoustic_my_new_voice.conf", "TRAINDNN", "False")
+    replace_write("conf/acoustic_my_new_voice.conf", "DNNGEN", "False")
+    replace_write("conf/acoustic_my_new_voice.conf", "GENWAV", "False")
+    replace_write("conf/acoustic_my_new_voice.conf", "CALMCD", "False")
+
+    replace_write("conf/duration_my_new_voice.conf", "TRAINDNN", "False")
+    replace_write("conf/duration_my_new_voice.conf", "DNNGEN", "False")
+    replace_write("conf/duration_my_new_voice.conf", "CALMCD", "False")
+
+    pe("sed -i.bak -e '19,20d;30,39d' 03_run_merlin.sh", shell=True)
+    pe("bash 03_run_merlin.sh 2>&1", shell=True)
     pe("mv 03_run_merlin.sh.bak 03_run_merlin.sh", shell=True)
+    if not os.path.exists(basedir + "final_acoustic_data"):
+        os.symlink(os.path.abspath("experiments/my_new_voice/acoustic_model/data"),
+                                   basedir + "final_acoustic_data")
+    if not os.path.exists(basedir + "final_duration_data"):
+        os.symlink(os.path.abspath("experiments/my_new_voice/duration_model/data"),
+                                   basedir + "final_duration_data")
     os.chdir(launchdir)
 
 
@@ -453,7 +497,7 @@ if __name__ == "__main__":
         extract_intermediate_features()
     elif os.path.exists("latest_features"):
         if not os.path.exists("latest_features/text_feat") and not os.path.exists("latest_features/audio_feat"):
-            print("Unable to find features, redoing feature extraction")
+            print("Redoing feature extraction")
             os.chdir("latest_features")
             if os.path.exists("merlin"):
                 shutil.rmtree("merlin")
@@ -462,5 +506,7 @@ if __name__ == "__main__":
             if os.path.exists("audio_feat"):
                 os.remove("audio_feat")
             extract_intermediate_features()
-    extract_final_features()
+
+    if not os.path.exists("latest_features/final_duration_data") or not os.path.exists("latest_features/final_acoustic_data"):
+        extract_final_features()
     print("NEXT STEP?")
