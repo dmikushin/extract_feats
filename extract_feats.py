@@ -4,6 +4,7 @@ import shutil
 import stat
 import subprocess
 import time
+import numpy as np
 
 # File to extract features (mostly) automatically using the merlin speech
 # pipeline
@@ -84,6 +85,33 @@ def pe(cmd, shell=False):
     for line in execute(cmd, shell=shell):
         print(line, end="")
 
+# from merlin
+def load_binary_file(file_name, dimension):
+    fid_lab = open(file_name, 'rb')
+    features = np.fromfile(fid_lab, dtype=np.float32)
+    fid_lab.close()
+    assert features.size % float(dimension) == 0.0,'specified dimension %s not compatible with data'%(dimension)
+    features = features[:(dimension * (features.size / dimension))]
+    features = features.reshape((-1, dimension))
+    return  features
+
+def array_to_binary_file(data, output_file_name):
+    data = np.array(data, 'float32')
+    fid = open(output_file_name, 'wb')
+    data.tofile(fid)
+    fid.close()
+
+def load_binary_file_frame(file_name, dimension):
+    fid_lab = open(file_name, 'rb')
+    features = np.fromfile(fid_lab, dtype=np.float32)
+    fid_lab.close()
+    assert features.size % float(dimension) == 0.0,'specified dimension %s not compatible with data'%(dimension)
+    frame_number = features.size / dimension
+    features = features[:(dimension * frame_number)]
+    features = features.reshape((-1, dimension))
+    return  features, frame_number
+
+
 # Source the tts_env_script
 env_script = "tts_env.sh"
 if os.path.isfile(env_script):
@@ -133,7 +161,7 @@ def extract_intermediate_features():
         os.chdir("database/wav")
         for sf in subfolders:
             wav_path = wav_partial_path + sf + "/*.wav"
-            p = pe("cp %s ." % wav_path, shell=True)
+            pe("cp %s ." % wav_path, shell=True)
         # downsample the files
         convert = estdir + "bin/ch_wave $i -o tmp_$i -itype wav -otype wav -F 16000 -f 48000"
         pe("for i in *.wav; do echo %s; %s; mv tmp_$i $i; done" % (convert, convert), shell=True)
@@ -492,6 +520,158 @@ def extract_final_features():
     os.chdir(launchdir)
 
 
+def save_numpy_features():
+    n_ins = 420
+    n_outs = 63  # 187
+
+    feature_dir = "latest_features/"
+    with open(feature_dir + "file_id_list_full.scp") as f:
+        file_list = [l.strip() for l in f.readlines()]
+
+    speaker_set = [x[:4] for x in file_list]
+    speaker_set = sorted(list(set(speaker_set)))
+    speaker_dict = {x: i + 1 for i, x in enumerate(speaker_set)}
+
+    text_file = feature_dir + 'txt.done.data'
+
+    with open(text_file) as f:
+        text_data = [l.strip() for l in f.readlines()]
+    text_ids = [td.split(" ")[1] for td in text_data]
+    text_utts = [td.split('"')[1] for td in text_data]
+    text_tups = list(zip(text_ids, text_utts))
+    text_lu = {k: v for k, v in text_tups}
+    text_rlu = {v: k for k, v in text_lu.items()}
+
+    monophone_path = os.path.abspath("latest_features/monophones") + "/"
+    if not os.path.exists(monophone_path):
+        os.symlink(os.path.abspath("latest_features/merlin/misc/scripts/alignment/phone_align/cmu_us_slt_arctic/lab"), monophone_path)
+
+    launchdir = os.getcwd()
+    phone_files = {gl[:-4]: monophone_path + gl for gl in os.listdir(monophone_path)
+                if gl[-4:] == ".lab"}
+
+    error_files = [
+        (i, x) for i, x in enumerate(text_ids) if x not in file_list]
+
+    # Solve corrupted files issues
+    cont = 0
+    for i, x in error_files:
+        print("Removing error files %s" % text_data.pop(i - cont))
+        cont += 1
+
+    assert len(text_tups) == len(file_list)
+    assert sum([ti not in file_list for ti in text_ids]) == 0
+
+    char_set = sorted(list(set(''.join(text_utts).lower())))
+    char2code = {x: i + 1 for i, x in enumerate(char_set)}
+    code2char = {v: k for k, v in char2code.items()}
+
+    phone_set = tuple('sil',)
+    for fid in file_list:
+        with open(phone_files[fid]) as f:
+            phonemes = [p.strip() for p in f.readlines()]
+        phonemes = [x.strip().split(' ') for x in phonemes[1:]]
+        durations, phonemes = zip(*[[float(x), z] for x, y, z in phonemes])
+        phone_set = tuple(sorted(list(set(phone_set + phonemes))))
+    phone2code = {x: i + 1 for i, x in enumerate(phone_set)}
+    code2phone = {v: k for k, v in phone2code.items()}
+
+    label_files_path = os.path.abspath("latest_features/final_acoustic_data/nn_no_silence_lab_420") + "/"
+    audio_files_path = os.path.abspath("latest_features/final_acoustic_data/nn_mgc_lf0_vuv_bap_63") + "/"
+    label_files = {lf[:-4]: label_files_path + lf for lf in os.listdir(label_files_path) if lf[-4:] == ".lab"}
+    audio_files = {af[:-4]: audio_files_path + af for af in os.listdir(audio_files_path) if af[-4:] == ".cmp"}
+
+    order = range(len(file_list))
+    np.random.seed(1)
+    np.random.shuffle(order)
+
+    all_in_features = []
+    all_out_features = []
+    all_phonemes = []
+    all_durations = []
+    all_text = []
+    all_ids = []
+    for i, idx in enumerate(order):
+        fid = file_list[idx]
+        #if i % 100 == 0:
+        #    print(i)
+        in_features, lab_frame_number = load_binary_file_frame(
+            label_files[fid], n_ins)
+        out_features, out_frame_number = load_binary_file_frame(
+            audio_files[fid], n_outs)
+
+        #print(lab_frame_number)
+        #print(out_frame_number)
+        if lab_frame_number != out_frame_number:
+            print("WARNING: misaligned frame size for %s, using min" % fid)
+            mf = min(lab_frame_number, out_frame_number)
+            in_features = in_features[:mf]
+            out_features = out_features[:mf]
+
+        with open(phone_files[fid]) as f:
+            phonemes = f.readlines()
+
+        phonemes = [x.strip().split(' ') for x in phonemes[1:]]
+        durations, phonemes = zip(*[[float(x), z] for x, y, z in phonemes])
+
+        # first non pause phoneme
+        first_phoneme = next(
+            k - 1 for k, x in enumerate(phonemes) if x != 'pau')
+
+        last_phoneme = len(phonemes) - next(
+            k - 1 for k, x in enumerate(phonemes[::-1]) if x != 'pau')
+
+        phonemes = phonemes[first_phoneme:last_phoneme]
+        durations = durations[first_phoneme:last_phoneme]
+
+        assert phonemes[0] == 'pau'
+        assert phonemes[-1] == 'pau'
+        # assert 'pau' not in phonemes[1:-1]
+        phonemes = phonemes[1:-1]
+
+        durations = np.array(durations)
+        durations = durations * 200
+        durations = durations - durations[0]
+        durations = durations[1:] - durations[:-1]
+        durations = durations[:-1]
+        durations = np.round(durations, 0).astype('int32')
+        phonemes = np.array([phone2code[x] for x in phonemes], dtype='int32')
+        all_in_features.append(in_features)
+        all_out_features.append(out_features)
+        all_phonemes.append(phonemes)
+        all_durations.append(durations)
+        all_text.append(text_lu[fid])
+        all_ids.append(fid)
+
+    assert len(all_in_features) == len(all_out_features)
+    assert len(all_in_features) == len(all_phonemes)
+    assert len(all_in_features) == len(all_durations)
+    assert len(all_in_features) == len(all_text)
+    assert len(all_in_features) == len(all_ids)
+
+    if not os.path.exists("latest_features/numpy_features"):
+        os.mkdir("latest_features/numpy_features")
+
+    for i in range(len(all_ids)):
+        print("Saving %s" % all_ids[i])
+        save_dict = {"file_id": all_ids[i],
+                    "phonemes": all_phonemes[i],
+                    "durations": all_durations[i],
+                    "text_features": all_in_features[i],
+                    "audio_features": all_out_features[i],
+                    "mgc_extent": 60,
+                    "lf0_idx": 60,
+                    "vuv_idx": 61,
+                    "bap_idx": 62,
+                    "phone2code": phone2code,
+                    "char2code": char2code,
+                    "speaker2code": speaker_dict,
+                    }
+
+        np.savez_compressed("latest_features/numpy_features/%s.npz" % all_ids[i],
+                            kwargs=save_dict)
+
+
 if __name__ == "__main__":
     if not os.path.exists("latest_features"):
         extract_intermediate_features()
@@ -509,4 +689,6 @@ if __name__ == "__main__":
 
     if not os.path.exists("latest_features/final_duration_data") or not os.path.exists("latest_features/final_acoustic_data"):
         extract_final_features()
-    print("NEXT STEP?")
+    if not os.path.exists("latest_features/numpy_features"):
+        save_numpy_features()
+    print("Feature extraction complete!")
