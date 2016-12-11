@@ -530,7 +530,9 @@ def save_numpy_features():
 
     speaker_set = [x[:4] for x in file_list]
     speaker_set = sorted(list(set(speaker_set)))
-    speaker_dict = {x: i + 1 for i, x in enumerate(speaker_set)}
+    speaker_dict = {x: i for i, x in enumerate(speaker_set)}
+    speaker2code = speaker_dict
+    code2speaker = {v: k for k, v in speaker2code.items()}
 
     text_file = feature_dir + 'txt.done.data'
 
@@ -564,7 +566,7 @@ def save_numpy_features():
     assert sum([ti not in file_list for ti in text_ids]) == 0
 
     char_set = sorted(list(set(''.join(text_utts).lower())))
-    char2code = {x: i + 1 for i, x in enumerate(char_set)}
+    char2code = {x: i for i, x in enumerate(char_set)}
     code2char = {v: k for k, v in char2code.items()}
 
     phone_set = tuple('sil',)
@@ -574,7 +576,7 @@ def save_numpy_features():
         phonemes = [x.strip().split(' ') for x in phonemes[1:]]
         durations, phonemes = zip(*[[float(x), z] for x, y, z in phonemes])
         phone_set = tuple(sorted(list(set(phone_set + phonemes))))
-    phone2code = {x: i + 1 for i, x in enumerate(phone_set)}
+    phone2code = {x: i for i, x in enumerate(phone_set)}
     code2phone = {v: k for k, v in phone2code.items()}
 
     label_files_path = os.path.abspath("latest_features/final_acoustic_data/nn_no_silence_lab_420") + "/"
@@ -653,24 +655,34 @@ def save_numpy_features():
     if not os.path.exists("latest_features/numpy_features"):
         os.mkdir("latest_features/numpy_features")
 
+    def oa(s_dict):
+        a = []
+        for i in range(max([int(k) for k in s_dict.keys()])):
+            a.append(s_dict[i])
+        return arr(a)
+
+    def arr(s):
+        return np.array(s)
+
     for i in range(len(all_ids)):
         print("Saving %s" % all_ids[i])
-        save_dict = {"file_id": all_ids[i],
-                    "phonemes": all_phonemes[i],
-                    "durations": all_durations[i],
-                    "text_features": all_in_features[i],
-                    "audio_features": all_out_features[i],
-                    "mgc_extent": 60,
-                    "lf0_idx": 60,
-                    "vuv_idx": 61,
-                    "bap_idx": 62,
-                    "phone2code": phone2code,
-                    "char2code": char2code,
-                    "speaker2code": speaker_dict,
+        save_dict = {"file_id": arr(all_ids[i]),
+                    "phonemes": arr(all_phonemes[i]),
+                    "durations": arr(all_durations[i]),
+                    "text": arr(all_text[i]),
+                    "text_features": arr(all_in_features[i]),
+                    "audio_features": arr(all_out_features[i]),
+                    "mgc_extent": arr(60),
+                    "lf0_idx": arr(60),
+                    "vuv_idx": arr(61),
+                    "bap_idx": arr(62),
+                    "code2phone": oa(code2phone),
+                    "code2char": oa(code2char),
+                    "code2speaker": oa(code2speaker),
                     }
 
         np.savez_compressed("latest_features/numpy_features/%s.npz" % all_ids[i],
-                            kwargs=save_dict)
+                            **save_dict)
 
 
 if __name__ == "__main__":
