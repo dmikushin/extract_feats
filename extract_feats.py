@@ -544,7 +544,8 @@ def save_numpy_features():
 
     monophone_path = os.path.abspath("latest_features/monophones") + "/"
     if not os.path.exists(monophone_path):
-        os.symlink(os.path.abspath("latest_features/merlin/misc/scripts/alignment/phone_align/cmu_us_slt_arctic/lab"), monophone_path)
+        # Trailing "/" causes issues
+        os.symlink(os.path.abspath("latest_features/merlin/misc/scripts/alignment/phone_align/cmu_us_slt_arctic/lab"), monophone_path[:-1])
 
     launchdir = os.getcwd()
     phone_files = {gl[:-4]: monophone_path + gl for gl in os.listdir(monophone_path)
@@ -673,6 +674,7 @@ def save_numpy_features():
 
 
 if __name__ == "__main__":
+    launchdir = os.getcwd()
     if not os.path.exists("latest_features"):
         extract_intermediate_features()
     elif os.path.exists("latest_features"):
@@ -686,9 +688,9 @@ if __name__ == "__main__":
             if os.path.exists("audio_feat"):
                 os.remove("audio_feat")
             extract_intermediate_features()
-
     if not os.path.exists("latest_features/final_duration_data") or not os.path.exists("latest_features/final_acoustic_data"):
         extract_final_features()
+    os.chdir(launchdir)
     if not os.path.exists("latest_features/numpy_features"):
         save_numpy_features()
     print("Feature extraction complete!")
