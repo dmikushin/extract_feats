@@ -155,7 +155,7 @@ def extract_intermediate_features(wav_path, txt_path):
     experiment_dir = os.getcwd()
 
     if not os.path.exists("database"):
-        print("Creating database and copying in VCTK files")
+        print("Creating database and copying in files")
         pe("bash 01_setup.sh my_new_voice", shell=True)
 
         # Copy in wav files
