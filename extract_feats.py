@@ -129,8 +129,10 @@ festvoxdir = os.environ["FESTVOXDIR"]
 estdir = os.environ["ESTDIR"]
 sptkdir = os.environ["SPTKDIR"]
 # generalize to more than VCTK when this is done...
+
 vctkdir = os.environ["VCTKDIR"]
 htkdir = os.environ["HTKDIR"]
+merlindir = os.environ["MERLINDIR"]
 
 def extract_intermediate_features():
     basedir = os.getcwd()
@@ -909,8 +911,7 @@ def test_reconstruction():
     a = np.load("latest_features/numpy_features/p294_085.npz")
     generate_merlin_wav(a["audio_features"], "latest_features/gen")
     generate_merlin_wav(a["audio_features"], "latest_features/gen",
-                 file_basename="p294_085.npz")
-    raise ValueError()
+                 file_basename="p294_085")
 
 if __name__ == "__main__":
     launchdir = os.getcwd()
@@ -932,5 +933,5 @@ if __name__ == "__main__":
     os.chdir(launchdir)
     if not os.path.exists("latest_features/numpy_features"):
         save_numpy_features()
-    # test_reconstruction()
+    test_reconstruction()
     print("Feature extraction complete!")
