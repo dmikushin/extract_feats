@@ -582,11 +582,6 @@ def save_numpy_features():
 
     with open(text_file) as f:
         text_data = [l.strip() for l in f.readlines()]
-    text_ids = [td.split(" ")[1] for td in text_data]
-    text_utts = [td.split('"')[1] for td in text_data]
-    text_tups = list(zip(text_ids, text_utts))
-    text_lu = {k: v for k, v in text_tups}
-    text_rlu = {v: k for k, v in text_lu.items()}
 
     monophone_path = os.path.abspath("latest_features/monophones") + "/"
     if not os.path.exists(monophone_path):
@@ -597,14 +592,26 @@ def save_numpy_features():
     phone_files = {gl[:-4]: monophone_path + gl for gl in os.listdir(monophone_path)
                 if gl[-4:] == ".lab"}
 
+    text_ids = [td.split(" ")[1] for td in text_data]
     error_files = [
         (i, x) for i, x in enumerate(text_ids) if x not in file_list]
 
     # Solve corrupted files issues
-    cont = 0
     for i, x in error_files:
-        print("Removing error files %s" % text_data.pop(i - cont))
-        cont += 1
+        try:
+            text_ids.remove(x)
+        except ValueError:
+            pass
+        try:
+            file_list.remove(x)
+        except ValueError:
+            pass
+        text_data = [td for td in text_data if td.split(" ")[1] != x]
+
+    text_utts = [td.split('"')[1] for td in text_data]
+    text_tups = list(zip(text_ids, text_utts))
+    text_lu = {k: v for k, v in text_tups}
+    text_rlu = {v: k for k, v in text_lu.items()}
 
     assert len(text_tups) == len(file_list)
     assert sum([ti not in file_list for ti in text_ids]) == 0
@@ -799,7 +806,8 @@ def generate_merlin_wav(
     fw_alpha = 0.58
     co_coef = 511
 
-    sptkdir = os.path.abspath("latest_features/merlin/tools/bin/SPTK-3.9") + "/"
+    sptkdir = merlindir + "tools/bin/SPTK-3.9/"
+    #sptkdir = os.path.abspath("latest_features/merlin/tools/bin/SPTK-3.9") + "/"
     sptk_path = {
         'SOPR': sptkdir + 'sopr',
         'FREQT': sptkdir + 'freqt',
@@ -815,7 +823,8 @@ def generate_merlin_wav(
         'X2X': sptkdir + 'x2x',
         'VSUM': sptkdir + 'vsum'}
 
-    worlddir = os.path.abspath("latest_features/merlin/tools/bin/WORLD") + "/"
+    #worlddir = os.path.abspath("latest_features/merlin/tools/bin/WORLD") + "/"
+    worlddir = merlindir + "tools/bin/WORLD/"
     world_path = {
         'ANALYSIS': worlddir + 'analysis',
         'SYNTHESIS': worlddir + 'synth'}
@@ -1015,6 +1024,7 @@ if __name__ == "__main__":
     if not os.path.exists("latest_features/numpy_features"):
         save_numpy_features()
     if not os.path.exists("latest_features/gen"):
-        get_reconstructions()
+        pass
+        #get_reconstructions()
     # TODO: Add -clean argument
     print("All files generated, remove the directories to rerun")
