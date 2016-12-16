@@ -8,6 +8,20 @@ import numpy as np
 
 # File to extract features (mostly) automatically using the merlin speech
 # pipeline
+# example tts_env.sh file , written out by installer script install_tts.py
+# https://gist.github.com/kastnerkyle/001a58a58d090658ee5350cb6129f857
+"""
+export ESTDIR=/Tmp/kastner/speech_synthesis/speech_tools/
+export FESTDIR=/Tmp/kastner/speech_synthesis/festival/
+export FESTVOXDIR=/Tmp/kastner/speech_synthesis/festvox/
+export VCTKDIR=/Tmp/kastner/vctk/VCTK-Corpus/
+export HTKDIR=/Tmp/kastner/speech_synthesis/htk/
+export SPTKDIR=/Tmp/kastner/speech_synthesis/SPTK-3.9/
+export HTSENGINEDIR=/Tmp/kastner/speech_synthesis/hts_engine_API-1.10/
+export HTSDEMODIR=/Tmp/kastner/speech_synthesis/HTS-demo_CMU-ARCTIC-SLT/
+export HTSPATCHDIR=/Tmp/kastner/speech_synthesis/HTS-2.3_for_HTL-3.4.1/
+export MERLINDIR=/Tmp/kastner/speech_synthesis/latest_features/merlin/
+"""
 
 # Not currently needed...
 def subfolder_select(subfolders):
@@ -391,10 +405,19 @@ def extract_intermediate_features(wav_path, txt_path):
     pushd = os.getcwd()
     os.chdir("conf")
 
-    replace_write("duration_slt_arctic_full.conf", "training_epochs", "1")
-    replace_write("duration_slt_arctic_full.conf", "warmup_epoch", "1")
-    replace_write("acoustic_slt_arctic_full.conf", "training_epochs", "1")
-    replace_write("acoustic_slt_arctic_full.conf", "warmup_epoch", "1")
+    replace_write("acoustic_slt_arctic_full.conf", "subphone_feats", "coarse_coding")
+    replace_write("acoustic_slt_arctic_full.conf", "dmgc", "60")
+    replace_write("acoustic_slt_arctic_full.conf", "dbap", "1")
+    # hack this to add an extra line in the config
+    replace_write("acoustic_slt_arctic_full.conf", "dlf0", "1\ndo_MLPG: False")
+    replace_write("acoustic_slt_arctic_full.conf", "TRAINDNN", "False")
+    replace_write("acoustic_slt_arctic_full.conf", "DNNGEN", "False")
+    replace_write("acoustic_slt_arctic_full.conf", "GENWAV", "False")
+    replace_write("acoustic_slt_arctic_full.conf", "CALMCD", "False")
+
+    replace_write("duration_slt_arctic_full.conf", "TRAINDNN", "False")
+    replace_write("duration_slt_arctic_full.conf", "DNNGEN", "False")
+    replace_write("duration_slt_arctic_full.conf", "CALMCD", "False")
 
     os.chdir(pushd)
     if not os.path.exists("slt_arctic_full_data"):
@@ -533,20 +556,34 @@ def extract_final_features():
         print("waiting for bap file copy to complete...")
         time.sleep(3)
 
+    num_audio_files = len(os.listdir(mgcdatadir))
+    num_label_files = len(os.listdir(labeldatadir))
+    num_files = min([num_audio_files, num_label_files])
+
     os.chdir(expdir)
 
     global_config_file="conf/global_settings.cfg"
     pe("bash scripts/prepare_config_files.sh %s" % global_config_file, shell=True)
     pe("bash scripts/prepare_config_files_for_synthesis.sh %s" % global_config_file, shell=True)
 
+    replace_write("conf/acoustic_my_new_voice.conf", "train_file_number", str(num_files))
+    replace_write("conf/acoustic_my_new_voice.conf", "valid_file_number", "0")
+    replace_write("conf/acoustic_my_new_voice.conf", "test_file_number", "0")
+
     replace_write("conf/acoustic_my_new_voice.conf", "dmgc", "60")
     replace_write("conf/acoustic_my_new_voice.conf", "dbap", "1")
     # hack this to add an extra line in the config
     replace_write("conf/acoustic_my_new_voice.conf", "dlf0", "1\ndo_MLPG: False")
+
     replace_write("conf/acoustic_my_new_voice.conf", "TRAINDNN", "False")
     replace_write("conf/acoustic_my_new_voice.conf", "DNNGEN", "False")
     replace_write("conf/acoustic_my_new_voice.conf", "GENWAV", "False")
     replace_write("conf/acoustic_my_new_voice.conf", "CALMCD", "False")
+
+
+    replace_write("conf/duration_my_new_voice.conf", "train_file_number", str(num_files))
+    replace_write("conf/duration_my_new_voice.conf", "valid_file_number", "0")
+    replace_write("conf/duration_my_new_voice.conf", "test_file_number", "0")
 
     replace_write("conf/duration_my_new_voice.conf", "TRAINDNN", "False")
     replace_write("conf/duration_my_new_voice.conf", "DNNGEN", "False")
@@ -593,6 +630,14 @@ def save_numpy_features():
                 if gl[-4:] == ".lab"}
 
     text_ids = [td.split(" ")[1] for td in text_data]
+
+    label_files_path = os.path.abspath("latest_features/final_acoustic_data/nn_no_silence_lab_420") + "/"
+    # still has silence in it?
+    #audio_files_path = os.path.abspath("latest_features/final_acoustic_data/nn_mgc_lf0_vuv_bap_63") + "/"
+    audio_files_path = os.path.abspath("latest_features/final_acoustic_data/nn_norm_mgc_lf0_vuv_bap_63") + "/"
+    label_files = {lf[:-4]: label_files_path + lf for lf in os.listdir(label_files_path) if lf[-4:] == ".lab"}
+    audio_files = {af[:-4]: audio_files_path + af for af in os.listdir(audio_files_path) if af[-4:] == ".cmp"}
+
     error_files = [
         (i, x) for i, x in enumerate(text_ids) if x not in file_list]
 
@@ -629,12 +674,6 @@ def save_numpy_features():
         phone_set = tuple(sorted(list(set(phone_set + phonemes))))
     phone2code = {x: i for i, x in enumerate(phone_set)}
     code2phone = {v: k for k, v in phone2code.items()}
-
-    label_files_path = os.path.abspath("latest_features/final_acoustic_data/nn_no_silence_lab_420") + "/"
-    audio_files_path = os.path.abspath("latest_features/final_acoustic_data/nn_mgc_lf0_vuv_bap_63") + "/"
-    label_files = {lf[:-4]: label_files_path + lf for lf in os.listdir(label_files_path) if lf[-4:] == ".lab"}
-    audio_files = {af[:-4]: audio_files_path + af for af in os.listdir(audio_files_path) if af[-4:] == ".cmp"}
-
     order = range(len(file_list))
     np.random.seed(1)
     np.random.shuffle(order)
@@ -1020,7 +1059,6 @@ if __name__ == "__main__":
     if not os.path.exists("latest_features/final_duration_data") or not os.path.exists("latest_features/final_acoustic_data"):
         extract_final_features()
         print("Feature extraction complete!")
-    os.chdir(launchdir)
     if not os.path.exists("latest_features/numpy_features"):
         save_numpy_features()
     if not os.path.exists("latest_features/gen"):
