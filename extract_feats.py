@@ -609,6 +609,21 @@ def save_numpy_features():
     with open(feature_dir + "file_id_list_full.scp") as f:
         file_list = [l.strip() for l in f.readlines()]
 
+    norm_info_dir = os.path.abspath("latest_features/norm_info/") + "/"
+    if not os.path.exists(norm_info_dir):
+        os.mkdir(norm_info_dir)
+
+    acoustic_dir = os.path.abspath(feature_dir + "final_acoustic_data/") + "/"
+    audio_norm_file = "norm_info_mgc_lf0_vuv_bap_%s_MVN.dat" % str(n_outs)
+    audio_norm_source = acoustic_dir + audio_norm_file
+    audio_norm_dest = norm_info_dir + audio_norm_file
+    shutil.copy2(audio_norm_source, audio_norm_dest)
+
+    label_norm_file = "label_norm_HTS_%s.dat" % n_ins
+    label_norm_source = acoustic_dir + label_norm_file
+    label_norm_dest = norm_info_dir + label_norm_file
+    shutil.copy2(label_norm_source, label_norm_dest)
+
     speaker_set = [x[:4] for x in file_list]
     speaker_set = sorted(list(set(speaker_set)))
     speaker_dict = {x: i for i, x in enumerate(speaker_set)}
