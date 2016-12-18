@@ -619,10 +619,20 @@ def save_numpy_features():
     audio_norm_dest = norm_info_dir + audio_norm_file
     shutil.copy2(audio_norm_source, audio_norm_dest)
 
+    with open(audio_norm_source) as fid:
+        cmp_info = np.fromfile(fid, dtype=np.float32)
+        cmp_info = cmp_info.reshape((2, -1))
+    audio_norm = cmp_info
+
     label_norm_file = "label_norm_HTS_%s.dat" % n_ins
     label_norm_source = acoustic_dir + label_norm_file
     label_norm_dest = norm_info_dir + label_norm_file
     shutil.copy2(label_norm_source, label_norm_dest)
+
+    with open(label_norm_source) as fid:
+        cmp_info = np.fromfile(fid, dtype=np.float32)
+        cmp_info = cmp_info.reshape((2, -1))
+    label_norm = cmp_info
 
     speaker_set = [x[:4] for x in file_list]
     speaker_set = sorted(list(set(speaker_set)))
@@ -776,7 +786,9 @@ def save_numpy_features():
                     "durations": arr(all_durations[i]),
                     "text": arr(all_text[i]),
                     "text_features": arr(all_in_features[i]),
+                    "text_norminfo": label_norm,
                     "audio_features": arr(all_out_features[i]),
+                    "audio_norminfo": audio_norm,
                     "mgc_extent": arr(60),
                     "lf0_idx": arr(60),
                     "vuv_idx": arr(61),
@@ -1013,10 +1025,15 @@ def generate_merlin_wav(
 
 def get_reconstructions():
     features_dir = "latest_features/numpy_features/"
-    for fp in os.listdir(features_dir):
+    for fp in os.listdir(features_dir)[:5]:
         print("Reconstructing %s" % fp)
         a = np.load(features_dir + fp)
-        generate_merlin_wav(a["audio_features"], "latest_features/gen",
+        norm = a["audio_norminfo"]
+        am = norm[0]
+        astd = norm[1]
+        af = a["audio_features"]
+        r = af * astd + am
+        generate_merlin_wav(r, "latest_features/gen",
                     file_basename=fp.split(".")[0],
                             do_post_filtering=False)
 
@@ -1077,7 +1094,7 @@ if __name__ == "__main__":
     if not os.path.exists("latest_features/numpy_features"):
         save_numpy_features()
     if not os.path.exists("latest_features/gen"):
-        pass
-        #get_reconstructions()
+        #pass
+        get_reconstructions()
     # TODO: Add -clean argument
     print("All files generated, remove the directories to rerun")
