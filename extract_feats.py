@@ -31,19 +31,19 @@ def subfolder_select(subfolders):
     return r
 
 # Need to edit the conf...
-def replace_conflines(conf, match, sub):
+def replace_conflines(conf, match, sub, replace_line="%s: %s\n"):
     replace = None
     for n, l in enumerate(conf):
         if l[:len(match)] == match:
             replace = n
             break
-    conf[replace] = "%s: %s\n" % (match, sub)
+    conf[replace] = replace_line % (match, sub)
     return conf
 
-def replace_write(fpath, match, sub):
+def replace_write(fpath, match, sub, replace_line="%s: %s\n"):
     with open(fpath, "r") as f:
         conf = f.readlines()
-    conf = replace_conflines(conf, match, sub)
+    conf = replace_conflines(conf, match, sub, replace_line=replace_line)
 
     with open(fpath, "w") as f:
         f.writelines(conf)
@@ -101,6 +101,7 @@ def pe(cmd, shell=False):
     for line in execute(cmd, shell=shell):
         print(line, end="")
 
+
 # from merlin
 def load_binary_file(file_name, dimension):
     fid_lab = open(file_name, 'rb')
@@ -150,7 +151,8 @@ vctkdir = os.environ["VCTKDIR"]
 htkdir = os.environ["HTKDIR"]
 merlindir = os.environ["MERLINDIR"]
 
-def extract_intermediate_features(wav_path, txt_path):
+def extract_intermediate_features(wav_path, txt_path, keep_silences=False,
+                                  full_features=False, ehmm_max_n_itr=1):
     basedir = os.getcwd()
     latest_feature_dir = "latest_features"
     if not os.path.exists(latest_feature_dir):
@@ -162,6 +164,13 @@ def extract_intermediate_features(wav_path, txt_path):
     if not os.path.exists("merlin"):
         clone_cmd = "git clone https://github.com/kastnerkyle/merlin"
         pe(clone_cmd, shell=True)
+
+    if keep_silences:
+        # REMOVE SILENCES TO MATCH JOSE PREPROC
+        os.chdir("merlin/src")
+        pe("sed -i.bak -e '708,712d;' run_merlin.py", shell=True)
+        pe("sed -i.bak -e '695,706d;' run_merlin.py", shell=True)
+        os.chdir(latest_feature_dir)
 
     os.chdir("merlin")
     merlin_dir = os.getcwd()
@@ -376,13 +385,112 @@ def extract_intermediate_features(wav_path, txt_path):
                     replace_line = n
                     break
 
-            run_aligner_lines[replace_line] = 'cat etc/txt.done.data | cut -d " " -f 2 > file_id_list.scp\n'
+            run_aligner_lines[replace_line] = 'cat txt.done.data | cut -d " " -f 2 > file_id_list.scp\n'
+
+            # FIXME
+            # Hackaround to avoid harcoded 30 in festivox do_ehmm
+            if not full_features:
+                bdir = os.getcwd()
+
+                # need to hack up run_aligner more..
+                # do setup manually
+                pe("mkdir cmu_us_slt_arctic", shell=True)
+                os.chdir("cmu_us_slt_arctic")
+
+                pe("%s/src/clustergen/setup_cg cmu us slt_arctic" % festvoxdir, shell=True)
+
+                #pe("cp ../txt.done.data etc/txt.done.data", shell=True)
+                #pe("cp ../wav/*.wav wav/", shell=True)
+
+                # remove top part but keep cd call
+                run_aligner_lines = run_aligner_lines[:13] + ["cd cmu_us_slt_arctic\n"] + run_aligner_lines[32:]
+
+                '''
+                # need to change do_build
+                # NO LONGER NECESSARY DUE TO FESTIVAL DEPENDENCE ON FILENAME
+
+                os.chdir("bin")
+                with open("do_build", "r") as f:
+                    do_build_lines = f.readlines()
+
+                replace_line = None
+                for n, l in enumerate(do_build_lines):
+                    if "$FESTVOXDIR/src/ehmm/bin/do_ehmm" in l:
+                        replace_line = n
+                        break
+
+                do_build_lines[replace_line] = "   $FESTVOXDIR/src/ehmm/bin/do_ehmm\n"
+
+                # FIXME Why does this hang when not overwritten???
+                with open("edit_do_build", "w") as f:
+                    f.writelines(do_build_lines)
+                '''
+
+                # need to change do_ehmm
+                os.chdir(festvoxdir)
+                os.chdir("src/ehmm/bin/")
+
+                # this is to fix festival if we somehow kill in the middle of training :(
+                # all due to festival's apparent dependence on name of script!
+                # really, really, REALLY weird
+                if os.path.exists("do_ehmm.bak"):
+                    with open("do_ehmm.bak", "r") as f:
+                        fix = f.readlines()
+
+                    with open("do_ehmm", "w") as f:
+                        f.writelines(fix)
+
+                with open("do_ehmm", "r") as f:
+                    do_ehmm_lines = f.readlines()
+
+                with open("do_ehmm.bak", "w") as f:
+                    f.writelines(do_ehmm_lines)
+
+                replace_line = None
+                for n, l in enumerate(do_ehmm_lines):
+                    if "$EHMMDIR/bin/ehmm ehmm/etc/ph_list.int" in l:
+                        replace_line = n
+                        break
+
+                max_n_itr = ehmm_max_n_itr
+                do_ehmm_lines[replace_line] = "    $EHMMDIR/bin/ehmm ehmm/etc/ph_list.int ehmm/etc/txt.phseq.data.int 1 0 ehmm/binfeat scaledft ehmm/mod 0 0 0 %s $num_cpus\n" % str(max_n_itr)
+
+                # depends on *name* of the script?????????
+                with open("do_ehmm", "w") as f:
+                    f.writelines(do_ehmm_lines)
+
+                # need to edit run_aligner....
+                dbn = "do_build"
+                # FIXME
+                # WHY DOES IT DEPEND ON FILENAME????!!!!!??????
+                # should be able to call only edit_do_build label
+                # but hangs indefinitely...
+                replace_line = None
+                for n, l in enumerate(run_aligner_lines):
+                    if "./bin/do_build build_prompts" in l:
+                        replace_line = n
+                        break
+                run_aligner_lines[replace_line] = "./bin/%s build_prompts\n" % dbn
+
+                replace_line = None
+                for n, l in enumerate(run_aligner_lines):
+                    if "./bin/do_build label" in l:
+                        replace_line = n
+                        break
+                run_aligner_lines[replace_line] = "./bin/%s label\n" % dbn
+
+                replace_line = None
+                for n, l in enumerate(run_aligner_lines):
+                    if "./bin/do_build build_utts" in l:
+                        replace_line = n
+                        break
+                run_aligner_lines[replace_line] = "./bin/%s build_utts\n" % dbn
+                os.chdir(bdir)
 
             with open("edit_run_aligner.sh", "w") as f:
                 f.writelines(run_aligner_lines)
 
             pe("bash edit_run_aligner.sh config.cfg", shell=True)
-
 
     # compile vocoder
     os.chdir(merlin_dir)
@@ -394,9 +502,15 @@ def extract_intermediate_features(wav_path, txt_path):
     os.chdir(merlin_dir)
     os.chdir("egs/slt_arctic/s1")
 
-    global_config_file = "conf/global_settings.cfg"
     # This madness due to autogen configs...
     pe("bash scripts/setup.sh slt_arctic_full", shell=True)
+
+    global_config_file = "conf/global_settings.cfg"
+    replace_write(global_config_file, "Labels", "phone_align", replace_line="%s=%s\n")
+    replace_write(global_config_file, "Train", "1132", replace_line="%s=%s\n")
+    replace_write(global_config_file, "Valid", "0", replace_line="%s=%s\n")
+    replace_write(global_config_file, "Test", "0", replace_line="%s=%s\n")
+
     pe("bash scripts/prepare_config_files.sh %s" % global_config_file, shell=True)
     pe("bash scripts/prepare_config_files_for_synthesis.sh %s" % global_config_file, shell=True)
     # delete the setup lines from run_full_voice.sh
@@ -405,19 +519,39 @@ def extract_intermediate_features(wav_path, txt_path):
     pushd = os.getcwd()
     os.chdir("conf")
 
-    replace_write("acoustic_slt_arctic_full.conf", "subphone_feats", "coarse_coding")
-    replace_write("acoustic_slt_arctic_full.conf", "dmgc", "60")
-    replace_write("acoustic_slt_arctic_full.conf", "dbap", "1")
-    # hack this to add an extra line in the config
-    replace_write("acoustic_slt_arctic_full.conf", "dlf0", "1\ndo_MLPG: False")
-    replace_write("acoustic_slt_arctic_full.conf", "TRAINDNN", "False")
-    replace_write("acoustic_slt_arctic_full.conf", "DNNGEN", "False")
-    replace_write("acoustic_slt_arctic_full.conf", "GENWAV", "False")
-    replace_write("acoustic_slt_arctic_full.conf", "CALMCD", "False")
+    acoustic_conf = "acoustic_slt_arctic_full.conf"
+    replace_write(acoustic_conf, "train_file_number", "1132")
+    replace_write(acoustic_conf, "valid_file_number", "0")
+    replace_write(acoustic_conf, "test_file_number", "0")
 
-    replace_write("duration_slt_arctic_full.conf", "TRAINDNN", "False")
-    replace_write("duration_slt_arctic_full.conf", "DNNGEN", "False")
-    replace_write("duration_slt_arctic_full.conf", "CALMCD", "False")
+    replace_write(acoustic_conf, "label_type", "phone_align")
+    replace_write(acoustic_conf, "subphone_feats", "coarse_coding")
+    replace_write(acoustic_conf, "dmgc", "60")
+    replace_write(acoustic_conf, "dbap", "1")
+    # hack this to add an extra line in the config
+    replace_write(acoustic_conf, "dlf0", "1\ndo_MLPG: False")
+
+    if not full_features:
+        replace_write(acoustic_conf, "warmup_epoch", "1")
+        replace_write(acoustic_conf, "training_epochs", "1")
+    replace_write(acoustic_conf, "TRAINDNN", "False")
+    replace_write(acoustic_conf, "DNNGEN", "False")
+    replace_write(acoustic_conf, "GENWAV", "False")
+    replace_write(acoustic_conf, "CALMCD", "False")
+
+    duration_conf = "duration_slt_arctic_full.conf"
+    replace_write(duration_conf, "train_file_number", "1132")
+    replace_write(duration_conf, "valid_file_number", "0")
+    replace_write(duration_conf, "test_file_number", "0")
+    replace_write(duration_conf, "label_type", "phone_align")
+    replace_write(duration_conf, "dur", "1")
+    if not full_features:
+        replace_write(duration_conf, "warmup_epoch", "1")
+        replace_write(duration_conf, "training_epochs", "1")
+
+    replace_write(duration_conf, "TRAINDNN", "False")
+    replace_write(duration_conf, "DNNGEN", "False")
+    replace_write(duration_conf, "CALMCD", "False")
 
     os.chdir(pushd)
     if not os.path.exists("slt_arctic_full_data"):
@@ -566,6 +700,42 @@ def extract_final_features():
     pe("bash scripts/prepare_config_files.sh %s" % global_config_file, shell=True)
     pe("bash scripts/prepare_config_files_for_synthesis.sh %s" % global_config_file, shell=True)
 
+    # this actally won't matter I don't think...
+    replace_write(global_config_file, "Train", str(num_files), replace_line="%s=%s\n")
+    replace_write(global_config_file, "Valid", "0", replace_line="%s=%s\n")
+    replace_write(global_config_file, "Test", "0", replace_line="%s=%s\n")
+
+    acoustic_conf = "conf/acoustic_my_new_voice.conf"
+    replace_write(acoustic_conf, "train_file_number", str(num_files))
+    replace_write(acoustic_conf, "valid_file_number", "0")
+    replace_write(acoustic_conf, "test_file_number", "0")
+
+    replace_write(acoustic_conf, "label_type", "phone_align")
+    replace_write(acoustic_conf, "subphone_feats", "coarse_coding")
+    replace_write(acoustic_conf, "dmgc", "60")
+    replace_write(acoustic_conf, "dbap", "1")
+    # hack this to add an extra line in the config
+    replace_write(acoustic_conf, "dlf0", "1\ndo_MLPG: False")
+
+    if not full_features:
+        replace_write(acoustic_conf, "warmup_epoch", "1")
+        replace_write(acoustic_conf, "training_epochs", "1")
+    replace_write(acoustic_conf, "TRAINDNN", "False")
+    replace_write(acoustic_conf, "DNNGEN", "False")
+    replace_write(acoustic_conf, "GENWAV", "False")
+    replace_write(acoustic_conf, "CALMCD", "False")
+
+    duration_conf = "conf/duration_my_new_voice.conf"
+    replace_write(duration_conf, "train_file_number", str(num_files))
+    replace_write(duration_conf, "valid_file_number", "0")
+    replace_write(duration_conf, "test_file_number", "0")
+    replace_write(duration_conf, "label_type", "phone_align")
+    replace_write(duration_conf, "dur", "1")
+    if not full_features:
+        replace_write(duration_conf, "warmup_epoch", "1")
+        replace_write(duration_conf, "training_epochs", "1")
+
+    '''
     replace_write("conf/acoustic_my_new_voice.conf", "train_file_number", str(num_files))
     replace_write("conf/acoustic_my_new_voice.conf", "valid_file_number", "0")
     replace_write("conf/acoustic_my_new_voice.conf", "test_file_number", "0")
@@ -588,6 +758,7 @@ def extract_final_features():
     replace_write("conf/duration_my_new_voice.conf", "TRAINDNN", "False")
     replace_write("conf/duration_my_new_voice.conf", "DNNGEN", "False")
     replace_write("conf/duration_my_new_voice.conf", "CALMCD", "False")
+    '''
 
     pe("sed -i.bak -e '19,20d;30,39d' 03_run_merlin.sh", shell=True)
     pe("bash 03_run_merlin.sh 2>&1", shell=True)
@@ -1048,10 +1219,18 @@ if __name__ == "__main__":
     parser.add_argument("--txt_dir", "-t",
                         help="filepath for directory of txt files",
                         required=True)
+    parser.add_argument("--keep_silences", "-k",
+                        help="keep silences in audio, may be necessary for certain languages or datasets",
+                        action="store_true", default=False)
+    parser.add_argument("--full_features", "-f",
+                        help="Extract all label features, rather than focusing only on audio",
+                        action="store_true", default=False)
     args = parser.parse_args()
 
     wav_dir = os.path.abspath(args.wav_dir)
     txt_dir = os.path.abspath(args.txt_dir)
+    keep_silences = args.keep_silences
+    full_features = args.full_features
     if wav_dir[-1] != "/":
         wav_dir += "/"
     if txt_dir[-1] != "/":
@@ -1076,10 +1255,11 @@ if __name__ == "__main__":
     """
 
     if not os.path.exists("latest_features"):
-        extract_intermediate_features(wav_dir, txt_dir)
+        extract_intermediate_features(wav_dir, txt_dir, keep_silences, full_features)
     elif os.path.exists("latest_features"):
         if not os.path.exists("latest_features/text_feat") and not os.path.exists("latest_features/audio_feat"):
             print("Redoing feature extraction")
+            pdir = os.getcwd()
             os.chdir("latest_features")
             if os.path.exists("merlin"):
                 shutil.rmtree("merlin")
@@ -1087,14 +1267,15 @@ if __name__ == "__main__":
                 os.remove("text_feat")
             if os.path.exists("audio_feat"):
                 os.remove("audio_feat")
-            extract_intermediate_features(wav_dir, txt_dir)
+            os.chdir(pdir)
+            extract_intermediate_features(wav_dir, txt_dir, keep_silences, full_features)
     if not os.path.exists("latest_features/final_duration_data") or not os.path.exists("latest_features/final_acoustic_data"):
         extract_final_features()
         print("Feature extraction complete!")
     if not os.path.exists("latest_features/numpy_features"):
         save_numpy_features()
     if not os.path.exists("latest_features/gen"):
-        #pass
-        get_reconstructions()
+        pass
+        #get_reconstructions()
     # TODO: Add -clean argument
     print("All files generated, remove the directories to rerun")
