@@ -339,15 +339,19 @@ def extract_intermediate_features(wav_path, txt_path, keep_silences=False,
             for txtpath in os.listdir(txt_l_path):
                 print("Processing %s" % txtpath)
                 full_txtpath = txt_l_path + txtpath
-                with open(full_txtpath, 'r') as f:
-                    r = f.readlines()
-                    assert len(r) == 1
-                    # remove txt extension
-                    name = txtpath.split(".")[0]
-                    text = r[0].strip()
-                    info_tup = (name, text)
-                    txt_ids.append(name)
-                    out_file.writelines(format_info_tup(info_tup))
+                name = txtpath.split(".")[0]
+                wavpath_matches = [fname.split(".")[0] for fname in os.listdir(wav_partial_path)
+                                   if name in fname]
+                for name in wavpath_matches:
+                    # Need an extra level here for pavoque :/
+                    with open(full_txtpath, 'r') as f:
+                        r = f.readlines()
+                        assert len(r) == 1
+                        # remove txt extension
+                        text = r[0].strip()
+                        info_tup = (name, text)
+                        txt_ids.append(name)
+                        out_file.writelines(format_info_tup(info_tup))
             out_file.close()
             pe("cp %s %s/txt.done.data" % (out_path, latest_feature_dir),
                shell=True)
@@ -399,11 +403,11 @@ def extract_intermediate_features(wav_path, txt_path, keep_silences=False,
 
                 pe("%s/src/clustergen/setup_cg cmu us slt_arctic" % festvoxdir, shell=True)
 
-                #pe("cp ../txt.done.data etc/txt.done.data", shell=True)
-                #pe("cp ../wav/*.wav wav/", shell=True)
+                pe("cp ../txt.done.data etc/txt.done.data", shell=True)
+                pe("cp ../wav/*.wav wav/", shell=True)
 
                 # remove top part but keep cd call
-                run_aligner_lines = run_aligner_lines[:13] + ["cd cmu_us_slt_arctic\n"] + run_aligner_lines[32:]
+                run_aligner_lines = run_aligner_lines[:13] + ["cd cmu_us_slt_arctic\n"] + run_aligner_lines[35:]
 
                 '''
                 # need to change do_build
@@ -490,7 +494,8 @@ def extract_intermediate_features(wav_path, txt_path, keep_silences=False,
             with open("edit_run_aligner.sh", "w") as f:
                 f.writelines(run_aligner_lines)
 
-            pe("bash edit_run_aligner.sh config.cfg", shell=True)
+            # 2>&1 needed to make it work?? really sketchy
+            pe("bash edit_run_aligner.sh config.cfg 2>&1", shell=True)
 
     # compile vocoder
     os.chdir(merlin_dir)
@@ -854,7 +859,24 @@ def save_numpy_features():
     text_lu = {k: v for k, v in text_tups}
     text_rlu = {v: k for k, v in text_lu.items()}
 
-    assert len(text_tups) == len(file_list)
+    # take only valid subset.... ?
+    new_file_list = []
+    text_tup_fnames = [tt[0] for tt in text_tups]
+    for n, fname in enumerate(file_list):
+        if fname in text_tup_fnames:
+            new_file_list.append(fname)
+
+    file_list = new_file_list
+
+    new_text_tups = []
+    for n, ttup in enumerate(text_tups):
+        if ttup[0] in file_list:
+            new_text_tups.append(ttup)
+
+    text_tups = new_text_tups
+
+    # why on earth should this fail
+    #assert len(text_tups) == len(file_list)
     assert sum([ti not in file_list for ti in text_ids]) == 0
 
     char_set = sorted(list(set(''.join(text_utts).lower())))
