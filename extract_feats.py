@@ -887,6 +887,7 @@ def save_numpy_features():
     for fid in file_list:
         with open(phone_files[fid]) as f:
             phonemes = [p.strip() for p in f.readlines()]
+        #FIXME: Bug here that allows filenames in
         phonemes = [x.strip().split(' ') for x in phonemes[1:]]
         durations, phonemes = zip(*[[float(x), z] for x, y, z in phonemes])
         phone_set = tuple(sorted(list(set(phone_set + phonemes))))
