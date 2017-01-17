@@ -810,12 +810,6 @@ def save_numpy_features():
         cmp_info = cmp_info.reshape((2, -1))
     label_norm = cmp_info
 
-    speaker_set = [x[:4] for x in file_list]
-    speaker_set = sorted(list(set(speaker_set)))
-    speaker_dict = {x: i for i, x in enumerate(speaker_set)}
-    speaker2code = speaker_dict
-    code2speaker = {v: k for k, v in speaker2code.items()}
-
     text_file = feature_dir + 'txt.done.data'
 
     with open(text_file) as f:
@@ -979,17 +973,17 @@ def save_numpy_features():
                     "phonemes": arr(all_phonemes[i]),
                     "durations": arr(all_durations[i]),
                     "text": arr(all_text[i]),
-                    "text_features": arr(all_in_features[i]),
-                    "text_norminfo": label_norm,
+                    #"text_features": arr(all_in_features[i]),
+                    #"text_norminfo": label_norm,
                     "audio_features": arr(all_out_features[i]),
-                    "audio_norminfo": audio_norm,
+                    #"audio_norminfo": audio_norm,
                     "mgc_extent": arr(60),
                     "lf0_idx": arr(60),
                     "vuv_idx": arr(61),
                     "bap_idx": arr(62),
-                    "code2phone": oa(code2phone),
-                    "code2char": oa(code2char),
-                    "code2speaker": oa(code2speaker),
+                    #"code2phone": oa(code2phone),
+                    #"code2char": oa(code2char),
+                    #"code2speaker": oa(code2speaker),
                     }
 
         np.savez_compressed("latest_features/numpy_features/%s.npz" % all_ids[i],
@@ -1219,14 +1213,17 @@ def generate_merlin_wav(
 
 def get_reconstructions():
     features_dir = "latest_features/numpy_features/"
+    norm_info_file = "latest_features/norm_info/norm_info_mgc_lf0_vuv_bap_63_MVN.dat"
+    with open(norm_info_file, "rb") as f:
+        cmp_info = np.fromfile(f, dtype=np.float32)
+    cmp_info = cmp_info.reshape((2, -1))
+    cmp_mean = cmp_info[0]
+    cmp_std = cmp_info[1]
     for fp in os.listdir(features_dir)[:5]:
         print("Reconstructing %s" % fp)
         a = np.load(features_dir + fp)
-        norm = a["audio_norminfo"]
-        am = norm[0]
-        astd = norm[1]
         af = a["audio_features"]
-        r = af * astd + am
+        r = af * cmp_std + cmp_mean
         generate_merlin_wav(r, "latest_features/gen",
                     file_basename=fp.split(".")[0],
                             do_post_filtering=False)
@@ -1298,7 +1295,6 @@ if __name__ == "__main__":
     if not os.path.exists("latest_features/numpy_features"):
         save_numpy_features()
     if not os.path.exists("latest_features/gen"):
-        pass
-        #get_reconstructions()
+        get_reconstructions()
     # TODO: Add -clean argument
     print("All files generated, remove the directories to rerun")
