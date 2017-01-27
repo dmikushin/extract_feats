@@ -5,6 +5,7 @@ import stat
 import subprocess
 import time
 import numpy as np
+from scipy.io import wavfile
 
 # File to extract features (mostly) automatically using the merlin speech
 # pipeline
@@ -196,8 +197,14 @@ def extract_intermediate_features(wav_path, txt_path, keep_silences=False,
         if len([tc for tc in to_copy if tc[-4:] == ".wav"]) == 0:
             raise IOError("Unable to find any wav files in %s, make sure the filenames end in .wav!" % wav_partial_path)
         os.chdir("database/wav")
-        wav_match_path = wav_partial_path + "/*.wav"
+        if wav_partial_path[-1] != "/":
+            wav_partial_path = wav_partial_path + "/"
+        wav_match_path = wav_partial_path + "*.wav"
         pe("cp %s ." % wav_match_path, shell=True)
+        for f in os.listdir("."):
+            # This is only necessary because of corrupted files...
+            fs, d = wavfile.read(f)
+            wavfile.write(f, fs, d)
 
         # downsample the files
         convert = estdir + "bin/ch_wave $i -o tmp_$i -itype wav -otype wav -F 16000 -f 48000"
