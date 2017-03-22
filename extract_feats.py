@@ -6,6 +6,7 @@ import subprocess
 import time
 import numpy as np
 from scipy.io import wavfile
+import glob
 
 # File to extract features (mostly) automatically using the merlin speech
 # pipeline
@@ -200,6 +201,9 @@ def extract_intermediate_features(wav_path, txt_path, keep_silences=False,
         if wav_partial_path[-1] != "/":
             wav_partial_path = wav_partial_path + "/"
         wav_match_path = wav_partial_path + "*.wav"
+        #for fi in glob.glob(wav_match_path):
+        #    pe("echo %s; cp %s ." % (fi, fi), shell=True)
+        # THIS MAY FAIL IF TOO MANY WAV FILES
         pe("cp %s ." % wav_match_path, shell=True)
         for f in os.listdir("."):
             # This is only necessary because of corrupted files...
@@ -226,7 +230,9 @@ def extract_intermediate_features(wav_path, txt_path, keep_silences=False,
         if len([tc for tc in to_copy if tc[-4:] == ".txt"]) == 0:
             raise IOError("Unable to find any txt files in %s. Be sure the filenames end in .txt!" % txt_partial_path)
         txt_match_path = txt_partial_path + "/*.txt"
-        pe("cp %s ." % txt_match_path, shell=True)
+        for fi in glob.glob(txt_match_path):
+            pe("echo %s; cp %s ." % (fi, fi), shell=True)
+        #pe("cp %s ." % txt_match_path, shell=True)
 
     do_state_align = False
     if do_state_align:
@@ -353,6 +359,16 @@ def extract_intermediate_features(wav_path, txt_path, keep_silences=False,
                     # Need an extra level here for pavoque :/
                     with open(full_txtpath, 'r') as f:
                         r = f.readlines()
+                        if len(r) != 1:
+                            new_r = []
+                            for ri in r:
+                                if ri != "\n":
+                                    new_r.append(ri)
+                            r = new_r
+                        if len(r) != 1:
+                            print("Something wrong in text extraction, cowardly bailing to IPython")
+                            from IPython import embed; embed()
+                            raise ValueError()
                         assert len(r) == 1
                         # remove txt extension
                         text = r[0].strip()
@@ -387,7 +403,9 @@ def extract_intermediate_features(wav_path, txt_path, keep_silences=False,
                 pe("cp %s ." % wav_path, shell=True)
             """
             wav_match_path = wav_partial_path + "/*.wav"
-            pe("cp %s ." % wav_match_path, shell=True)
+            for fi in glob.glob(wav_match_path):
+                pe("echo %s; cp %s ." % (fi, fi), shell=True)
+            #pe("cp %s ." % wav_match_path, shell=True)
             os.chdir(cwd)
 
             replace_line = None
@@ -411,7 +429,10 @@ def extract_intermediate_features(wav_path, txt_path, keep_silences=False,
                 pe("%s/src/clustergen/setup_cg cmu us slt_arctic" % festvoxdir, shell=True)
 
                 pe("cp ../txt.done.data etc/txt.done.data", shell=True)
-                pe("cp ../wav/*.wav wav/", shell=True)
+                wmp = "../wav/*.wav"
+                for fi in glob.glob(wmp):
+                    pe("echo %s; cp %s wav/" % (fi, fi), shell=True)
+                #pe("cp ../wav/*.wav wav/", shell=True)
 
                 # remove top part but keep cd call
                 run_aligner_lines = run_aligner_lines[:13] + ["cd cmu_us_slt_arctic\n"] + run_aligner_lines[35:]
@@ -506,6 +527,8 @@ def extract_intermediate_features(wav_path, txt_path, keep_silences=False,
 
     # compile vocoder
     os.chdir(merlin_dir)
+    #set it to run on cpu
+    pe("sed -i.bak -e s/MERLIN_THEANO_FLAGS=.*/MERLIN_THEANO_FLAGS='device=cpu,floatX=float32,on_unused_input=ignore'/g src/setup_env.sh", shell=True)
     os.chdir("tools")
     if not os.path.exists("SPTK-3.9"):
         pe("bash compile_tools.sh", shell=True)
@@ -1280,28 +1303,90 @@ if __name__ == "__main__":
         with open("txt/%s.txt" % base, "w") as f:
             f.write("%s\n" % txt)
     """
+    n_split = 5000
+    total_wav = sorted(os.listdir(wav_dir))
+    total_txt = sorted(os.listdir(txt_dir))
+    n_total_wav = len(total_wav)
+    n_total_txt = len(total_txt)
 
-    if not os.path.exists("latest_features"):
-        extract_intermediate_features(wav_dir, txt_dir, keep_silences, full_features)
-    elif os.path.exists("latest_features"):
-        if not os.path.exists("latest_features/text_feat") and not os.path.exists("latest_features/audio_feat"):
-            print("Redoing feature extraction")
-            pdir = os.getcwd()
-            os.chdir("latest_features")
-            if os.path.exists("merlin"):
-                shutil.rmtree("merlin")
-            if os.path.exists("text_feat"):
-                os.remove("text_feat")
-            if os.path.exists("audio_feat"):
-                os.remove("audio_feat")
-            os.chdir(pdir)
-            extract_intermediate_features(wav_dir, txt_dir, keep_silences, full_features)
-    if not os.path.exists("latest_features/final_duration_data") or not os.path.exists("latest_features/final_acoustic_data"):
-        extract_final_features()
-        print("Feature extraction complete!")
-    if not os.path.exists("latest_features/numpy_features"):
-        save_numpy_features()
-    if not os.path.exists("latest_features/gen"):
-        get_reconstructions()
-    # TODO: Add -clean argument
+    if n_total_wav <= n_split:
+        multifolder = False
+        itr = [0]
+        cur_wav_dir = wav_dir
+        cur_txt_dir = txt_dir
+    else:
+        multifolder = True
+        print("Large fileset found")
+        print("Performing temporary splits")
+        n_splits = n_total_wav // n_split + 1
+        itr = range(n_splits)
+        s = 0
+        for i in itr:
+            e = s + n_split
+            sub_wav = [wav_dir + str(os.sep) + tw for tw in total_wav[s:e]]
+            sub_txt = []
+            for sw in sub_wav:
+                fn = sw.split(os.sep)[-1].split(".")[0]
+                txt_i = [t for t in total_txt if fn in t]
+                assert len(txt_i) == 1
+                txt_i = txt_i[0]
+                sub_txt.append(txt_dir + str(os.sep) + txt_i)
+            tmp_wav_dir = "tmp_wav_%i" % i
+            tmp_txt_dir = "tmp_txt_%i" % i
+            if os.path.exists(tmp_wav_dir):
+                shutil.rmtree(tmp_wav_dir)
+            if os.path.exists(tmp_txt_dir):
+                shutil.rmtree(tmp_txt_dir)
+            os.mkdir(tmp_wav_dir)
+            os.mkdir(tmp_txt_dir)
+            assert len(sub_wav) == len(sub_txt)
+            print("Copying subset to tmp_*_%i" % i)
+            for wf, tf in zip(sub_wav, sub_txt):
+                shutil.copy2(wf, tmp_wav_dir)
+                shutil.copy2(tf, tmp_txt_dir)
+            s = e
+
+    for i in itr:
+        if multifolder:
+            cur_wav_dir = os.getcwd() + str(os.sep) + "tmp_wav_%i" % i + str(os.sep)
+            cur_txt_dir = os.getcwd() + str(os.sep) + "tmp_txt_%i" % i +  str(os.sep)
+            if os.path.exists("latest_features"):
+                shutil.rmtree("latest_features")
+        if not os.path.exists("latest_features"):
+            extract_intermediate_features(cur_wav_dir, cur_txt_dir, keep_silences, full_features)
+        elif os.path.exists("latest_features"):
+            if not os.path.exists("latest_features/text_feat") and not os.path.exists("latest_features/audio_feat"):
+                print("Redoing feature extraction")
+                pdir = os.getcwd()
+                os.chdir("latest_features")
+                if os.path.exists("merlin"):
+                    shutil.rmtree("merlin")
+                if os.path.exists("text_feat"):
+                    os.remove("text_feat")
+                if os.path.exists("audio_feat"):
+                    os.remove("audio_feat")
+                os.chdir(pdir)
+                extract_intermediate_features(cur_wav_dir, cur_txt_dir, keep_silences, full_features)
+        if not os.path.exists("latest_features/final_duration_data") or not os.path.exists("latest_features/final_acoustic_data"):
+            extract_final_features()
+            print("Feature extraction complete!")
+        if not os.path.exists("latest_features/numpy_features"):
+            save_numpy_features()
+        #if not os.path.exists("latest_features/gen"):
+        #    get_reconstructions()
+        # TODO: Add -clean argument
+        if multifolder:
+            tmp_results = "tmp_results_%i" % i
+            if os.path.exists(tmp_results):
+                shutil.rmtree(tmp_results)
+            shutil.copytree("latest_features" + str(os.sep) + "numpy_features",
+                            tmp_results)
+    if multifolder:
+        for i in itr:
+            for f in os.listdir("tmp_results_%i" % i):
+                try:
+                    shutil.move("tmp_results_%i" % i + str(os.sep) + f,
+                                "latest_features" + str(os.sep) + "numpy_features")
+                except shutil.Error:
+                    continue
     print("All files generated, remove the directories to rerun")
