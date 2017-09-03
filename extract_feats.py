@@ -6,6 +6,7 @@ import subprocess
 import time
 import numpy as np
 from scipy.io import wavfile
+import re
 import glob
 
 # File to extract features (mostly) automatically using the merlin speech
@@ -100,8 +101,11 @@ def pe(cmd, shell=False):
     """
     Print and execute command on system
     """
+    ret = []
     for line in execute(cmd, shell=shell):
+        ret.append(line)
         print(line, end="")
+    return ret
 
 
 # from merlin
@@ -181,7 +185,7 @@ def extract_intermediate_features(wav_path, txt_path, keep_silences=False,
 
     if not os.path.exists("database"):
         print("Creating database and copying in files")
-        pe("bash 01_setup.sh my_new_voice", shell=True)
+        pe("bash -x 01_setup.sh my_new_voice 2>&1", shell=True)
 
         # Copy in wav files
         wav_partial_path = wav_path #vctkdir + "wav48/"
@@ -201,17 +205,22 @@ def extract_intermediate_features(wav_path, txt_path, keep_silences=False,
         if wav_partial_path[-1] != "/":
             wav_partial_path = wav_partial_path + "/"
         wav_match_path = wav_partial_path + "*.wav"
-        #for fi in glob.glob(wav_match_path):
-        #    pe("echo %s; cp %s ." % (fi, fi), shell=True)
+        for fi in glob.glob(wav_match_path):
+            pe("echo %s; cp %s ." % (fi, fi), shell=True)
         # THIS MAY FAIL IF TOO MANY WAV FILES
-        pe("cp %s ." % wav_match_path, shell=True)
+        # pe("cp %s ." % wav_match_path, shell=True)
         for f in os.listdir("."):
             # This is only necessary because of corrupted files...
             fs, d = wavfile.read(f)
             wavfile.write(f, fs, d)
 
         # downsample the files
-        convert = estdir + "bin/ch_wave $i -o tmp_$i -itype wav -otype wav -F 16000 -f 48000"
+        get_sr_cmd = 'file `ls *.wav | head -n 1` | cut -d " " -f 12'
+        sr = pe(get_sr_cmd, shell=True)
+        sr_int = int(sr[0].strip())
+        print("Got samplerate {}, converting to 16000".format(sr_int))
+        # was assuming all were 48000
+        convert = estdir + "bin/ch_wave $i -o tmp_$i -itype wav -otype wav -F 16000 -f {}".format(sr_int)
         pe("for i in *.wav; do echo %s; %s; mv tmp_$i $i; done" % (convert, convert), shell=True)
 
         os.chdir(experiment_dir)
@@ -231,7 +240,13 @@ def extract_intermediate_features(wav_path, txt_path, keep_silences=False,
             raise IOError("Unable to find any txt files in %s. Be sure the filenames end in .txt!" % txt_partial_path)
         txt_match_path = txt_partial_path + "/*.txt"
         for fi in glob.glob(txt_match_path):
-            pe("echo %s; cp %s ." % (fi, fi), shell=True)
+            # escape string...
+            fi = re.escape(fi)
+            try:
+                pe("echo %s; cp %s ." % (fi, fi), shell=True)
+            except:
+                from IPython import embed; embed(); raise ValueError()
+
         #pe("cp %s ." % txt_match_path, shell=True)
 
     do_state_align = False
@@ -239,7 +254,7 @@ def extract_intermediate_features(wav_path, txt_path, keep_silences=False,
         raise ValueError("Replace these lies with something that points at the right place")
         os.chdir(merlin_dir)
         os.chdir("misc/scripts/alignment/state_align")
-        pe("bash setup.sh", shell=True)
+        pe("bash -x setup.sh 2>&1", shell=True)
 
         with open("config.cfg", "r") as f:
             config_lines = f.readlines()
@@ -265,12 +280,12 @@ def extract_intermediate_features(wav_path, txt_path, keep_silences=False,
         with open("config.cfg", "w") as f:
             f.writelines(config_lines)
 
-        pe("bash run_aligner.sh config.cfg", shell=True)
+        pe("bash -x run_aligner.sh config.cfg 2>&1", shell=True)
     else:
         os.chdir(merlin_dir)
         if not os.path.exists("misc/scripts/alignment/phone_align/full-context-labels/full"):
             os.chdir("misc/scripts/alignment/phone_align")
-            pe("bash setup.sh", shell=True)
+            pe("bash -x setup.sh 2>&1", shell=True)
 
             with open("config.cfg", "r") as f:
                 config_lines = f.readlines()
@@ -359,22 +374,24 @@ def extract_intermediate_features(wav_path, txt_path, keep_silences=False,
                     # Need an extra level here for pavoque :/
                     with open(full_txtpath, 'r') as f:
                         r = f.readlines()
-                        if len(r) != 1:
-                            new_r = []
-                            for ri in r:
-                                if ri != "\n":
-                                    new_r.append(ri)
-                            r = new_r
-                        if len(r) != 1:
-                            print("Something wrong in text extraction, cowardly bailing to IPython")
-                            from IPython import embed; embed()
-                            raise ValueError()
-                        assert len(r) == 1
-                        # remove txt extension
-                        text = r[0].strip()
-                        info_tup = (name, text)
-                        txt_ids.append(name)
-                        out_file.writelines(format_info_tup(info_tup))
+                    if len(r) == 0:
+                        continue
+                    if len(r) != 1:
+                        new_r = []
+                        for ri in r:
+                            if ri != "\n":
+                                new_r.append(ri)
+                        r = new_r
+                    if len(r) != 1:
+                        print("Something wrong in text extraction, cowardly bailing to IPython")
+                        from IPython import embed; embed()
+                        raise ValueError()
+                    assert len(r) == 1
+                    # remove txt extension
+                    text = r[0].strip()
+                    info_tup = (name, text)
+                    txt_ids.append(name)
+                    out_file.writelines(format_info_tup(info_tup))
             out_file.close()
             pe("cp %s %s/txt.done.data" % (out_path, latest_feature_dir),
                shell=True)
@@ -404,7 +421,12 @@ def extract_intermediate_features(wav_path, txt_path, keep_silences=False,
             """
             wav_match_path = wav_partial_path + "/*.wav"
             for fi in glob.glob(wav_match_path):
-                pe("echo %s; cp %s ." % (fi, fi), shell=True)
+                fi = re.escape(fi)
+                try:
+                    pe("echo %s; cp %s ." % (fi, fi), shell=True)
+                except:
+                    from IPython import embed; embed(); raise ValueError()
+                #pe("echo %s; cp %s ." % (fi, fi), shell=True)
             #pe("cp %s ." % wav_match_path, shell=True)
             os.chdir(cwd)
 
@@ -431,7 +453,12 @@ def extract_intermediate_features(wav_path, txt_path, keep_silences=False,
                 pe("cp ../txt.done.data etc/txt.done.data", shell=True)
                 wmp = "../wav/*.wav"
                 for fi in glob.glob(wmp):
-                    pe("echo %s; cp %s wav/" % (fi, fi), shell=True)
+                    fi = re.escape(fi)
+                    try:
+                        pe("echo %s; cp %s wav/" % (fi, fi), shell=True)
+                    except:
+                        from IPython import embed; embed(); raise ValueError()
+                    #pe("echo %s; cp %s wav/" % (fi, fi), shell=True)
                 #pe("cp ../wav/*.wav wav/", shell=True)
 
                 # remove top part but keep cd call
@@ -523,7 +550,7 @@ def extract_intermediate_features(wav_path, txt_path, keep_silences=False,
                 f.writelines(run_aligner_lines)
 
             # 2>&1 needed to make it work?? really sketchy
-            pe("bash edit_run_aligner.sh config.cfg 2>&1", shell=True)
+            pe("bash -x edit_run_aligner.sh config.cfg 2>&1", shell=True)
 
     # compile vocoder
     os.chdir(merlin_dir)
@@ -531,14 +558,14 @@ def extract_intermediate_features(wav_path, txt_path, keep_silences=False,
     pe("sed -i.bak -e s/MERLIN_THEANO_FLAGS=.*/MERLIN_THEANO_FLAGS='device=cpu,floatX=float32,on_unused_input=ignore'/g src/setup_env.sh", shell=True)
     os.chdir("tools")
     if not os.path.exists("SPTK-3.9"):
-        pe("bash compile_tools.sh", shell=True)
+        pe("bash -x compile_tools.sh 2>&1", shell=True)
 
     # slt_arctic stuff
     os.chdir(merlin_dir)
     os.chdir("egs/slt_arctic/s1")
 
     # This madness due to autogen configs...
-    pe("bash scripts/setup.sh slt_arctic_full", shell=True)
+    pe("bash -x scripts/setup.sh slt_arctic_full 2>&1", shell=True)
 
     global_config_file = "conf/global_settings.cfg"
     replace_write(global_config_file, "Labels", "phone_align", replace_line="%s=%s\n")
@@ -546,8 +573,8 @@ def extract_intermediate_features(wav_path, txt_path, keep_silences=False,
     replace_write(global_config_file, "Valid", "0", replace_line="%s=%s\n")
     replace_write(global_config_file, "Test", "0", replace_line="%s=%s\n")
 
-    pe("bash scripts/prepare_config_files.sh %s" % global_config_file, shell=True)
-    pe("bash scripts/prepare_config_files_for_synthesis.sh %s" % global_config_file, shell=True)
+    pe("bash -x scripts/prepare_config_files.sh %s 2>&1" % global_config_file, shell=True)
+    pe("bash -x scripts/prepare_config_files_for_synthesis.sh %s 2>&1" % global_config_file, shell=True)
     # delete the setup lines from run_full_voice.sh
     pe("sed -i.bak -e '11d;12d;13d' run_full_voice.sh", shell=True)
 
@@ -590,7 +617,7 @@ def extract_intermediate_features(wav_path, txt_path, keep_silences=False,
 
     os.chdir(pushd)
     if not os.path.exists("slt_arctic_full_data"):
-        pe("bash run_full_voice.sh", shell=True)
+        pe("bash -x run_full_voice.sh 2>&1", shell=True)
 
     pe("mv run_full_voice.sh.bak run_full_voice.sh", shell=True)
 
@@ -619,7 +646,7 @@ def extract_intermediate_features(wav_path, txt_path, keep_silences=False,
     with open("edit_extract_features_for_merlin.sh", "w") as f:
         f.writelines(ex_lines)
 
-    pe("bash edit_extract_features_for_merlin.sh", shell=True)
+    pe("bash -x edit_extract_features_for_merlin.sh 2>&1", shell=True)
 
     os.chdir(basedir)
     os.chdir("latest_features")
@@ -671,8 +698,8 @@ def extract_final_features():
     file_list_path = file_list_base + "test_id_list.scp"
     # debug with no test utterances
     with open(file_list_path, "w") as f:
-        f.writelines(["\n",])
-        #f.writelines([tef.split(".")[0] + "\n" for tef in text_files[:20]])
+        #f.writelines(["\n",])
+        f.writelines([tef.split(".")[0] + "\n" for tef in text_files[:20]])
 
     if not os.path.exists(basedir + "test_id_list.scp"):
         os.symlink(os.path.abspath(file_list_path), os.path.abspath(basedir + "test_id_list.scp"))
@@ -711,7 +738,7 @@ def extract_final_features():
     copytree(basedir + "audio_feat/bap", bapdatadir)
     copytree(basedir + "audio_feat/lf0", lf0datadir)
     copytree(basedir + "audio_feat/mgc", mgcdatadir)
-    #pe("cp %s acoustic_model/data" % label_norm_HTS_420.dat)
+    #pe("cp %s acoustic_model/data" % "label_norm_HTS_420.dat")
 
     while len(os.listdir(mgcdatadir)) < len(os.listdir(basedir + "audio_feat/mgc")):
         print("waiting for mgc file copy to complete...")
@@ -732,8 +759,8 @@ def extract_final_features():
     os.chdir(expdir)
 
     global_config_file="conf/global_settings.cfg"
-    pe("bash scripts/prepare_config_files.sh %s" % global_config_file, shell=True)
-    pe("bash scripts/prepare_config_files_for_synthesis.sh %s" % global_config_file, shell=True)
+    pe("bash -x scripts/prepare_config_files.sh %s 2>&1" % global_config_file, shell=True)
+    pe("bash -x scripts/prepare_config_files_for_synthesis.sh %s 2>&1" % global_config_file, shell=True)
 
     # this actally won't matter I don't think...
     replace_write(global_config_file, "Train", str(num_files), replace_line="%s=%s\n")
@@ -796,7 +823,7 @@ def extract_final_features():
     '''
 
     pe("sed -i.bak -e '19,20d;30,39d' 03_run_merlin.sh", shell=True)
-    pe("bash 03_run_merlin.sh 2>&1", shell=True)
+    pe("bash -x 03_run_merlin.sh 2>&1", shell=True)
     pe("mv 03_run_merlin.sh.bak 03_run_merlin.sh", shell=True)
     if not os.path.exists(basedir + "final_acoustic_data"):
         os.symlink(os.path.abspath("experiments/my_new_voice/acoustic_model/data"),
@@ -1261,7 +1288,7 @@ def get_reconstructions():
 if __name__ == "__main__":
     launchdir = os.getcwd()
     import argparse
-    parser = argparse.ArgumentParser(description="Extract audio and text features using speech synthesis toolkits including SPTK, HTS, HTK, and Merlin. Special thanks to Jose Sotelo and the Edinburgh Speech Synthesis team.",
+    parser = argparse.ArgumentParser(description="Extract audio and text features using speech synthesis toolkits including SPTK, HTS, HTK, and Merlin. Special thanks to Jose Sotelo and the Edinburgh Speech Synthesis team. The text to use must not contain any parenthesis characters e.g. '(' or ')' .",
                                      epilog="Example usage: python extract_features.py -w wav48/p294 -t txt/p294")
     parser.add_argument("--wav_dir", "-w",
                         help="filepath for directory of wav files",
@@ -1328,7 +1355,12 @@ if __name__ == "__main__":
             for sw in sub_wav:
                 fn = sw.split(os.sep)[-1].split(".")[0]
                 txt_i = [t for t in total_txt if fn in t]
-                assert len(txt_i) == 1
+                if len(txt_i) != 1:
+                    # exact match
+                    txt_i = [t for t in txt_i if t.split(".")[0] == fn]
+                    if len(txt_i) != 1:
+                        raise ValueError("Multiple/no match found for wav file {}".format(fn))
+                        #from IPython import embed; embed(); raise ValueError()
                 txt_i = txt_i[0]
                 sub_txt.append(txt_dir + str(os.sep) + txt_i)
             tmp_wav_dir = "tmp_wav_%i" % i
