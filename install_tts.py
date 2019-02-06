@@ -10,22 +10,22 @@ import time
 # for "non-blob" install from something besides the magic kk_all_deps.tar.gz
 
 # Contents of kk_all_deps.tar.gz
-"""
-all_deps/
-all_deps/festlex_CMU.tar.gz
-all_deps/festival-2.4-release.tar.gz
-all_deps/HTK-3.4.1.tar.gz
-all_deps/festlex_POSLEX.tar.gz
-all_deps/HTS-2.3_for_HTK-3.4.1.tar.bz2
-all_deps/VCTK-Corpus.tar.gz
-all_deps/hts_engine_API-1.10.tar.gz
-all_deps/festvox_cmu_us_slt_cg.tar.gz
-all_deps/speech_tools-2.4-release.tar.gz
-all_deps/festvox-2.7.0-release.tar.gz
-all_deps/festlex_OALD.tar.gz
-all_deps/SPTK-3.9.tar.gz
-all_deps/HTS-demo_CMU-ARCTIC-SLT.tar.bz2
-"""
+kk_all_deps = \
+[ \
+"http://www.cstr.ed.ac.uk/downloads/festival/2.4/festlex_CMU.tar.gz", \
+"http://www.cstr.ed.ac.uk/downloads/festival/2.4/festival-2.4-release.tar.gz", \
+"https://www.csie.ntu.edu.tw/~b97020/DSP/HTK-3.4.1.tar.gz", \
+"http://www.cstr.ed.ac.uk/downloads/festival/2.4/festlex_POSLEX.tar.gz", \
+"http://hts.sp.nitech.ac.jp/archives/2.3/HTS-2.3_for_HTK-3.4.1.tar.bz2", \
+"https://datashare.is.ed.ac.uk/bitstream/handle/10283/2119/VCTK-Corpus.tar.gz", \
+"http://download2.nust.na/pub4/sourceforge/h/ht/hts-engine/hts_engine%20API/hts_engine_API-1.10/hts_engine_API-1.10.tar.gz", \
+"http://www.cstr.ed.ac.uk/downloads/festival/2.4/voices/festvox_cmu_us_slt_cg.tar.gz", \
+"http://www.cstr.ed.ac.uk/downloads/festival/2.4/speech_tools-2.4-release.tar.gz", \
+"http://festvox.org/festvox-2.7/festvox-2.7.0-release.tar.gz", \
+"http://www.cstr.ed.ac.uk/downloads/festival/2.4/festlex_OALD.tar.gz", \
+"http://download2.nust.na/pub4/sourceforge/s/project/sp/sp-tk/SPTK/SPTK-3.9/SPTK-3.9.tar.gz", \
+"http://hts.sp.nitech.ac.jp/archives/2.2/HTS-demo_CMU-ARCTIC-SLT.tar.bz2"
+]
 
 # We are about to install a lot of things
 # 2 primary directories inside base_dir
@@ -35,7 +35,9 @@ all_deps/HTS-demo_CMU-ARCTIC-SLT.tar.bz2
 # we also set the environment appropriately and write out some helper scripts
 starting_dir = os.getcwd()
 
-base_install_dir = "/Tmp/kastner/"
+base_install_dir = "./"
+
+dep_dir = "all_deps/"
 
 base_synthesis_dir = base_install_dir + "speech_synthesis/"
 base_vctk_dir = base_install_dir + "vctk/"
@@ -122,26 +124,16 @@ if not os.path.exists(base_synthesis_dir):
 if not os.path.exists(base_vctk_dir):
     os.mkdir(base_vctk_dir)
 
-# Check for the big bundle
-install_bundle = "kk_all_deps.tar.gz"
-install_bundle_path = base_install_dir + install_bundle
-if not os.path.exists(install_bundle):
-    print("ERROR: Must have %s in %s" % (install_bundle, base_install_dir))
-    raise IOError("Make sure the filepath %s has the right file" % install_bundle_path)
+# Downloads parts of sources bundle
+if not os.path.exists(base_install_dir + dep_dir):
+    os.mkdir(base_install_dir + dep_dir)
+os.chdir(base_install_dir + dep_dir)
+for dep in kk_all_deps:
+    wget_cmd = ["wget", "--quiet", dep]
+    print("Downloading %s ..." % dep)
+    pe(wget_cmd)
 
 # Start unpacking things
-os.chdir(base_synthesis_dir)
-
-# create a temporary symlink to unzip
-if not os.path.exists(base_synthesis_dir + install_bundle):
-    os.symlink(install_bundle_path, base_synthesis_dir + install_bundle)
-
-dep_dir = "all_deps/"
-full_dep_dir = base_synthesis_dir + dep_dir
-if not os.path.exists(full_dep_dir):
-    print("Unpacking deps...")
-    untar_cmd = ["tar", "xzf", install_bundle]
-    pe(untar_cmd)
 
 # Unpack vctk
 # Install dir for vctk
