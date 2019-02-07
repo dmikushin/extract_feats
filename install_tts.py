@@ -62,6 +62,10 @@ env["FESTVOXDIR"] = festvoxdir
 env["FESTDIR"] = festdir
 env["VCTKDIR"] = vctkdir
 env["PATH"] = starting_dir + os.pathsep + env["PATH"]
+#env["CFLAGS_EXT0"] = "-O0"
+#env["CXXFLAGS_EXT0"] = "-O0"
+env["CFLAGS_EXT0"] = "-O3"
+env["CXXFLAGS_EXT0"] = "-O3"
 
 def copytree(src, dst, symlinks = False, ignore = None):
   if not os.path.exists(dst):
@@ -90,22 +94,27 @@ def copytree(src, dst, symlinks = False, ignore = None):
       shutil.copy2(s, d)
 
 # Convenience function to reuse the defined env
-def pwrap(args, shell=False):
+def pwrap(args, pwrap_env, shell=False):
     p = subprocess.Popen(args, shell=shell, stdout=subprocess.PIPE,
-                         stdin=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
+                         stdin=subprocess.PIPE, stderr=subprocess.PIPE, env=pwrap_env,
                          universal_newlines=True)
     return p
 
 
 # Don't use piped log printing here, as it tends to hang/deadlock
 # (Ubuntu 18.04, dash terminal)
-def pe(cmd, shell=False):
+def pe(cmd, env=env, shell=False):
     print("cd %s && %s" % (os.getcwd(), " ".join(cmd)))
-    popen = pwrap(cmd, shell=shell)
-    popen.communicate()[0]
-    return_code = popen.returncode
-    if return_code:
-        raise subprocess.CalledProcessError(return_code, cmd)
+    popen = pwrap(cmd, env, shell=shell)
+
+    output = popen.communicate()[0]
+    exitCode = popen.returncode
+
+    if (exitCode == 0):
+        return output
+    else:
+        print("%s" % output)
+        raise subprocess.CalledProcessError(exitCode, cmd)
 
 
 def sha256_checksum(filename, block_size=65536):
@@ -206,7 +215,12 @@ if not os.path.exists(festdir + "bin/festival"):
     configure_cmd = ["./configure"]
     pe(configure_cmd)
     make_cmd = ["make"]
-    pe(make_cmd)
+    env_festival = env
+    # Special g++ flags to workaround segmentation fault
+    # as described here: https://aur.archlinux.org/packages/festival-patched-hts/
+    env_festival["CXXFLAGS_EXT1"] = "-fno-delete-null-pointer-checks"
+    env_festival["CXXFLAGS_EXT2"] = "-std=gnu++98"
+    pe(make_cmd, env_festival)
 
 # Install festival addons
 # festlex_CMU

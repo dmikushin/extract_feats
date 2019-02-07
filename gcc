@@ -1,2 +1,25 @@
-#!/bin/sh
-/usr/bin/gcc -g $@
+#!/usr/bin/perl -w
+
+my(@args) = ();
+
+foreach $arg (@ARGV)
+{
+	if (($arg eq "-O2") or ($arg eq "-O3"))
+	{
+		next;
+	}
+
+	push(@args, $arg);
+}
+
+# Append extra compiler flags passed through numbered environment variables.
+my($i) = 0;
+for ( ; $i < 100; $i++)
+{
+	if (defined($ENV{"CFLAGS_EXT$i"}))
+	{
+		push(@args, $ENV{"CFLAGS_EXT$i"});
+	}
+}
+
+exit(system "/usr/bin/gcc", "-g", @args);
