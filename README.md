@@ -23,8 +23,10 @@ loop
 
 ```
 sudo apt-get install tcl-snack sox
-sudo pip install theano matplotlib
+sudo pip install theano matplotlib bandmat
 ```
+
+Note pip modules are to be installed for Python 2.7.
 
 ## Deployment
 
