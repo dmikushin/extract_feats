@@ -26,6 +26,8 @@ export HTSPATCHDIR=/Tmp/kastner/speech_synthesis/HTS-2.3_for_HTL-3.4.1/
 export MERLINDIR=/Tmp/kastner/speech_synthesis/latest_features/merlin/
 """
 
+launchdir = os.getcwd()
+
 # Not currently needed...
 def subfolder_select(subfolders):
     r = [sf for sf in subfolders if sf == "p294"]
@@ -182,6 +184,22 @@ def extract_intermediate_features(wav_path, txt_path, keep_silences=False,
     merlin_dir = os.getcwd()
     os.chdir("egs/build_your_own_voice/s1")
     experiment_dir = os.getcwd()
+
+    # Link datasets archives, if they exist
+    archive = "slt_wav.zip"
+    if os.path.exists(launchdir + "/all_deps/" + archive):
+      folder = "/latest_features/merlin/misc/scripts/alignment/phone_align/"
+      if not os.path.exists(launchdir + folder):
+          os.makedirs(launchdir + folder)
+      if not os.path.exists(launchdir + folder + archive):
+          os.symlink(launchdir + "/all_deps/" + archive, launchdir + folder + archive)
+    archive = "slt_arctic_full_data.zip"
+    if os.path.exists(launchdir + "/all_deps/" + archive):
+      folder = "/latest_features/merlin/egs/slt_arctic/s1/"
+      if not os.path.exists(launchdir + folder):
+          os.makedirs(launchdir + folder)
+      if not os.path.exists(launchdir + folder + archive):
+          os.symlink(launchdir + "/all_deps/" + archive, launchdir + folder + archive)
 
     if not os.path.exists("database"):
         print("Creating database and copying in files")
@@ -1286,7 +1304,6 @@ def get_reconstructions():
                             do_post_filtering=False)
 
 if __name__ == "__main__":
-    launchdir = os.getcwd()
     import argparse
     parser = argparse.ArgumentParser(description="Extract audio and text features using speech synthesis toolkits including SPTK, HTS, HTK, and Merlin. Special thanks to Jose Sotelo and the Edinburgh Speech Synthesis team. The text to use must not contain any parenthesis characters e.g. '(' or ')' .",
                                      epilog="Example usage: python extract_features.py -w wav48/p294 -t txt/p294")

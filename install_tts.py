@@ -26,7 +26,9 @@ kk_all_deps = \
 "http://festvox.org/festvox-2.7/festvox-2.7.0-release.tar.gz", \
 "http://www.cstr.ed.ac.uk/downloads/festival/2.4/festlex_OALD.tar.gz", \
 "http://download2.nust.na/pub4/sourceforge/s/project/sp/sp-tk/SPTK/SPTK-3.9/SPTK-3.9.tar.gz", \
-"http://hts.sp.nitech.ac.jp/archives/2.2/HTS-demo_CMU-ARCTIC-SLT.tar.bz2"
+"http://hts.sp.nitech.ac.jp/archives/2.2/HTS-demo_CMU-ARCTIC-SLT.tar.bz2", \
+"http://104.131.174.95/slt_wav.zip", \
+"http://104.131.174.95/slt_arctic_full_data.zip"
 ]
 
 # We are about to install a lot of things
