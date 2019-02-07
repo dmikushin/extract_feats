@@ -4,6 +4,8 @@ import shutil
 import os
 import stat
 import time
+import hashlib
+import ntpath
 
 # This script looks extremely defensive, but *should* let you rerun at
 # any stage along the way. Also a lot of code repetition due to eventual support
@@ -35,23 +37,19 @@ kk_all_deps = \
 # we also set the environment appropriately and write out some helper scripts
 starting_dir = os.getcwd()
 
-base_install_dir = "./"
-
-dep_dir = "all_deps/"
-
-base_synthesis_dir = base_install_dir + "speech_synthesis/"
+base_install_dir = starting_dir + "/"
 base_vctk_dir = base_install_dir + "vctk/"
 
 vctkdir = base_vctk_dir + "VCTK-Corpus/"
-merlindir = base_synthesis_dir + "latest_features/merlin/"
-estdir = base_synthesis_dir + "speech_tools/"
-festdir = base_synthesis_dir + "festival/"
-festvoxdir = base_synthesis_dir + "festvox/"
-htkdir = base_synthesis_dir + "htk/"
-sptkdir = base_synthesis_dir + "SPTK-3.9/"
-htspatchdir = base_synthesis_dir + "HTS-2.3_for_HTL-3.4.1/"
-htsenginedir = base_synthesis_dir + "hts_engine_API-1.10/"
-htsdemodir = base_synthesis_dir + "HTS-demo_CMU-ARCTIC-SLT/"
+merlindir = base_install_dir + "latest_features/merlin/"
+estdir = base_install_dir + "speech_tools/"
+festdir = base_install_dir + "festival/"
+festvoxdir = base_install_dir + "festvox/"
+htkdir = base_install_dir + "htk/"
+sptkdir = base_install_dir + "SPTK-3.9/"
+htspatchdir = base_install_dir + "HTS-2.3_for_HTL-3.4.1/"
+htsenginedir = base_install_dir + "hts_engine_API-1.10/"
+htsdemodir = base_install_dir + "HTS-demo_CMU-ARCTIC-SLT/"
 
 # http://www.nguyenquyhy.com/2014/07/create-full-context-labels-for-hts/
 
@@ -96,44 +94,59 @@ def pwrap(args, shell=False):
     return p
 
 
-# Print output
-# http://stackoverflow.com/questions/4417546/constantly-print-subprocess-output-while-process-is-running
-def execute(cmd, shell=False):
+# Don't use piped log printing here, as it tends to hang/deadlock
+# (Ubuntu 18.04, dash terminal)
+def pe(cmd, shell=False):
+    print("cd %s && %s" % (os.getcwd(), " ".join(cmd)))
     popen = pwrap(cmd, shell=shell)
-    for stdout_line in iter(popen.stdout.readline, ""):
-        yield stdout_line
-
-    popen.stdout.close()
-    return_code = popen.wait()
+    popen.communicate()[0]
+    return_code = popen.returncode
     if return_code:
         raise subprocess.CalledProcessError(return_code, cmd)
 
 
-def pe(cmd, shell=False):
-    """
-    Print and execute command on system
-    """
-    for line in execute(cmd, shell=shell):
-        print(line, end="")
-
-# Setup all the directories
-os.chdir(base_install_dir)
-if not os.path.exists(base_synthesis_dir):
-    os.mkdir(base_synthesis_dir)
-
-if not os.path.exists(base_vctk_dir):
-    os.mkdir(base_vctk_dir)
-
+def sha256_checksum(filename, block_size=65536):
+    sha256 = hashlib.sha256()
+    with open(filename, 'rb') as f:
+        for block in iter(lambda: f.read(block_size), b''):
+            sha256.update(block)
+    return sha256.hexdigest()
+    
 # Downloads parts of sources bundle
+dep_dir = "all_deps/"
+print("Downloading dependencies ...")
 if not os.path.exists(base_install_dir + dep_dir):
     os.mkdir(base_install_dir + dep_dir)
 os.chdir(base_install_dir + dep_dir)
 for dep in kk_all_deps:
+    download = True
+    if os.path.exists(ntpath.basename(dep)):
+        if os.path.exists(ntpath.basename(dep) + ".sha256sum"):
+            checksum_file = open(ntpath.basename(dep) + ".sha256sum", "r")
+            checksum, filename = checksum_file.readline().split()
+            if (checksum == sha256_checksum(ntpath.basename(dep))):
+                download = False
+                print("Skipping already downloaded file %s" % ntpath.basename(dep))
+            else:
+                print("Wrong sha256sum for file %s - remove and redownload!" % ntpath.basename(dep))
+                os.remove(ntpath.basename(dep))
+    
+    if not download:
+        continue
+
     wget_cmd = ["wget", "--quiet", dep]
     print("Downloading %s ..." % dep)
     pe(wget_cmd)
 
+    checksum = sha256_checksum(ntpath.basename(dep))
+    checksum_file = open(ntpath.basename(dep) + ".sha256sum", "w")
+    checksum_file.write("%s\t%s" % (checksum, ntpath.basename(dep)))
+    checksum_file.close()
+
+print("Download complete!")
+
 # Start unpacking things
+full_dep_dir = base_install_dir + dep_dir
 
 # Unpack vctk
 # Install dir for vctk
@@ -146,7 +159,7 @@ os.chdir(base_vctk_dir)
 vctk_pkg = "VCTK-Corpus.tar.gz"
 vctk_pkg_path = base_vctk_dir + vctk_pkg
 if not os.path.exists(vctk_pkg_path):
-    os.symlink(base_synthesis_dir + dep_dir + vctk_pkg, vctk_pkg_path)
+    os.symlink(base_install_dir + dep_dir + vctk_pkg, vctk_pkg_path)
 
 if not os.path.exists(vctkdir):
     print("Unpacking vctk...")
@@ -155,11 +168,11 @@ if not os.path.exists(vctkdir):
 
 os.chdir(base_install_dir)
 speech_tools_pkg = "speech_tools-2.4-release.tar.gz"
-speech_tools_pkg_path = base_synthesis_dir + speech_tools_pkg
+speech_tools_pkg_path = base_install_dir + speech_tools_pkg
 if not os.path.exists(speech_tools_pkg_path):
     os.symlink(full_dep_dir + speech_tools_pkg, speech_tools_pkg_path)
 
-os.chdir(base_synthesis_dir)
+os.chdir(base_install_dir)
 if not os.path.exists(estdir):
     print("Unpacking speech_tools...")
     untar_cmd = ["tar", "xzf", speech_tools_pkg_path]
@@ -175,9 +188,9 @@ if not os.path.exists(estdir + "bin/siod"):
     pe(make_cmd)
 
 # Install festival
-os.chdir(base_synthesis_dir)
+os.chdir(base_install_dir)
 festival_pkg = "festival-2.4-release.tar.gz"
-festival_pkg_path = base_synthesis_dir + festival_pkg
+festival_pkg_path = base_install_dir + festival_pkg
 if not os.path.exists(festival_pkg_path):
     os.symlink(full_dep_dir + festival_pkg, festival_pkg_path)
 
@@ -198,26 +211,26 @@ if not os.path.exists(festdir + "bin/festival"):
 # festlex_POSLEX
 # festvox_cmu_us_slt_cg.tar.gz
 cmu_lex_pkg = "festlex_CMU.tar.gz"
-cmu_lex_pkg_path = base_synthesis_dir + cmu_lex_pkg
+cmu_lex_pkg_path = base_install_dir + cmu_lex_pkg
 if not os.path.exists(cmu_lex_pkg_path):
     os.symlink(full_dep_dir + cmu_lex_pkg, cmu_lex_pkg_path)
 
 oald_pkg = "festlex_OALD.tar.gz"
-oald_pkg_path = base_synthesis_dir + oald_pkg
+oald_pkg_path = base_install_dir + oald_pkg
 if not os.path.exists(oald_pkg_path):
     os.symlink(full_dep_dir + oald_pkg, oald_pkg_path)
 
 poslex_pkg = "festlex_POSLEX.tar.gz"
-poslex_pkg_path = base_synthesis_dir + poslex_pkg
+poslex_pkg_path = base_install_dir + poslex_pkg
 if not os.path.exists(poslex_pkg_path):
     os.symlink(full_dep_dir + poslex_pkg, poslex_pkg_path)
 
 slt_cg_pkg = "festvox_cmu_us_slt_cg.tar.gz"
-slt_cg_pkg_path = base_synthesis_dir + slt_cg_pkg
+slt_cg_pkg_path = base_install_dir + slt_cg_pkg
 if not os.path.exists(slt_cg_pkg_path):
     os.symlink(full_dep_dir + slt_cg_pkg, slt_cg_pkg_path)
 
-os.chdir(base_synthesis_dir)
+os.chdir(base_install_dir)
 if not os.path.exists(festdir + "lib/voices"):
     # if no voice dir install all the lex stuff...
     untar_cmd = ["tar", "xzf", slt_cg_pkg_path]
@@ -230,9 +243,9 @@ if not os.path.exists(festdir + "lib/voices"):
     pe(untar_cmd)
 
 # Install festvox
-os.chdir(base_synthesis_dir)
+os.chdir(base_install_dir)
 festvox_pkg = "festvox-2.7.0-release.tar.gz"
-festvox_pkg_path = base_synthesis_dir + festvox_pkg
+festvox_pkg_path = base_install_dir + festvox_pkg
 if not os.path.exists(festvox_pkg_path):
     os.symlink(full_dep_dir + festvox_pkg, festvox_pkg_path)
 
@@ -250,9 +263,9 @@ if not os.path.exists(festvoxdir + "src/ehmm/bin/ehmm"):
 
 # Install htk
 # patch for HTS
-os.chdir(base_synthesis_dir)
+os.chdir(base_install_dir)
 htk_pkg = "HTK-3.4.1.tar.gz"
-htk_pkg_path = base_synthesis_dir + htk_pkg
+htk_pkg_path = base_install_dir + htk_pkg
 if not os.path.exists(htk_pkg_path):
     os.symlink(full_dep_dir + htk_pkg, htk_pkg_path)
 
@@ -262,10 +275,10 @@ if not os.path.exists(htkdir):
 
 if not os.path.exists(htkdir + "HTKTools/HSGen"):
     # HTS patchfile
-    os.chdir(base_synthesis_dir)
+    os.chdir(base_install_dir)
     hts_patch_pkg = "HTS-2.3_for_HTK-3.4.1.tar.bz2"
     patch_dir = "hts_patch/"
-    hts_patch_dir = base_synthesis_dir + patch_dir
+    hts_patch_dir = base_install_dir + patch_dir
     hts_patch_path = hts_patch_dir + hts_patch_pkg
     if not os.path.exists(hts_patch_pkg):
         if not os.path.exists(hts_patch_dir):
@@ -288,9 +301,9 @@ if not os.path.exists(htkdir + "HTKTools/HSGen"):
     pe(["./configure", "--disable-hlmtools", "--disable-hslab"])
     pe(["make"])
 
-os.chdir(base_synthesis_dir)
+os.chdir(base_install_dir)
 sptk_pkg = "SPTK-3.9.tar.gz"
-sptk_subdir = base_synthesis_dir + "sptk/"
+sptk_subdir = base_install_dir + "sptk/"
 sptk_pkg_path = sptk_subdir + sptk_pkg
 if not os.path.exists(sptk_subdir):
     os.mkdir(sptk_subdir)
@@ -309,13 +322,13 @@ if not os.path.exists(sptkdir):
     pe(["make"])
     os.chdir(sptk_subdir + "SPTK-3.9")
     pe(["make install"], shell=True)
-    os.chdir(base_synthesis_dir)
+    os.chdir(base_install_dir)
     os.mkdir("SPTK-3.9")
     copytree("sptk/SPTK-3.9/out", "SPTK-3.9")
 
-os.chdir(base_synthesis_dir)
+os.chdir(base_install_dir)
 hts_engine_pkg = "hts_engine_API-1.10.tar.gz"
-hts_engine_pkg_path = base_synthesis_dir + hts_engine_pkg
+hts_engine_pkg_path = base_install_dir + hts_engine_pkg
 if not os.path.exists(hts_engine_pkg_path):
     os.symlink(full_dep_dir + hts_engine_pkg, hts_engine_pkg_path)
 
@@ -331,9 +344,9 @@ if not os.path.exists(htsenginedir + "bin/hts_engine"):
     make_cmd = ["make"]
     pe(make_cmd)
 
-os.chdir(base_synthesis_dir)
+os.chdir(base_install_dir)
 hts_demo_pkg = "HTS-demo_CMU-ARCTIC-SLT.tar.bz2"
-hts_demo_pkg_path = base_synthesis_dir + hts_demo_pkg
+hts_demo_pkg_path = base_install_dir + hts_demo_pkg
 if not os.path.exists(hts_demo_pkg_path):
     os.symlink(full_dep_dir + hts_demo_pkg, hts_demo_pkg_path)
 
@@ -352,7 +365,7 @@ if not os.path.exists(htsdemodir + "data/lf0/cmu_us_arctic_slt_a0001.lf0"):
     pe(configure_cmd)
 
 print("Typing 'make' in %s will run a speech sythesis demo, but it takes a long time" % htsdemodir)
-print("Also dumping a helper source script to %stts_env.sh" % base_synthesis_dir)
+print("Also dumping a helper source script to %stts_env.sh" % base_install_dir)
 # http://www.nguyenquyhy.com/2014/07/create-full-context-labels-for-hts/
 lns = ["export ESTDIR=%s\n" % estdir]
 lns.append("export FESTDIR=%s\n" % festdir)
@@ -365,6 +378,6 @@ lns.append("export HTSDEMODIR=%s\n" % htsdemodir)
 lns.append("export HTSPATCHDIR=%s\n" % htspatchdir)
 lns.append("export MERLINDIR=%s\n" % merlindir)
 
-os.chdir(base_synthesis_dir)
+os.chdir(base_install_dir)
 with open("tts_env.sh", "w") as f:
     f.writelines(lns)

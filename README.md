@@ -18,3 +18,9 @@ loop
         │   └── ...
         └── numpy_features_valid
 ```
+
+## Prerequsites
+
+```
+sudo apt-get install tcl-snack sox
+```
