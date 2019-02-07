@@ -24,3 +24,17 @@ loop
 ```
 sudo apt-get install tcl-snack sox
 ```
+
+## Deployment
+
+First, build all the necessary tools and utilities:
+
+```
+python ./install_tts.py
+```
+
+Then run the feature extraction script itself:
+
+```
+python ./extract_feats.py -w ./vctk/VCTK-Corpus/wav48/p294 -t txt/p294
+```
