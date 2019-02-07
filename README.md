@@ -23,6 +23,7 @@ loop
 
 ```
 sudo apt-get install tcl-snack sox
+sudo pip3 install theano
 ```
 
 ## Deployment
