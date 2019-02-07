@@ -36,5 +36,5 @@ python ./install_tts.py
 Then run the feature extraction script itself:
 
 ```
-python ./extract_feats.py -w ./vctk/VCTK-Corpus/wav48/p294 -t txt/p294
+python ./extract_feats.py -w ./vctk/VCTK-Corpus/wav48/p225 -t ./vctk/VCTK-Corpus/txt/p225
 ```
