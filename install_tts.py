@@ -59,6 +59,7 @@ env["ESTDIR"] = estdir
 env["FESTVOXDIR"] = festvoxdir
 env["FESTDIR"] = festdir
 env["VCTKDIR"] = vctkdir
+env["PATH"] = starting_dir + os.pathsep + env["PATH"]
 
 def copytree(src, dst, symlinks = False, ignore = None):
   if not os.path.exists(dst):
