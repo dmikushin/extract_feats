@@ -103,9 +103,9 @@ def pwrap(args, pwrap_env, shell=False):
 
 # Don't use piped log printing here, as it tends to hang/deadlock
 # (Ubuntu 18.04, dash terminal)
-def pe(cmd, env=env, shell=False):
+def pe(cmd, pwrap_env=env, shell=False):
     print("cd %s && %s" % (os.getcwd(), " ".join(cmd)))
-    popen = pwrap(cmd, env, shell=shell)
+    popen = pwrap(cmd, pwrap_env=pwrap_env, shell=shell)
 
     output = popen.communicate()[0]
     exitCode = popen.returncode
@@ -197,7 +197,17 @@ if not os.path.exists(estdir + "bin/siod"):
     configure_cmd = ["./configure"]
     pe(configure_cmd)
     make_cmd = ["make", "-j", "4"]
-    pe(make_cmd)
+    env_est = env
+    # Special g++ flags to workaround segmentation fault
+    # as described here: https://aur.archlinux.org/packages/festival-patched-hts/
+    env_est["CFLAGS_EXT0"] = "-O0"
+    env_est["CFLAGS_EXT1"] = "-fno-delete-null-pointer-checks"
+    env_est["CFLAGS_EXT2"] = "-std=gnu++98"
+    env_est["CXXFLAGS_EXT0"] = "-O0"
+    env_est["CXXFLAGS_EXT1"] = "-fno-delete-null-pointer-checks"
+    env_est["CXXFLAGS_EXT2"] = "-std=gnu++98"
+    make_cmd = ["make", "-j", "4"]
+    pe(make_cmd, env_est)
 
 # Install festival
 os.chdir(base_install_dir)
@@ -218,6 +228,10 @@ if not os.path.exists(festdir + "bin/festival"):
     env_festival = env
     # Special g++ flags to workaround segmentation fault
     # as described here: https://aur.archlinux.org/packages/festival-patched-hts/
+    env_festival["CFLAGS_EXT0"] = "-O0"
+    env_festival["CFLAGS_EXT1"] = "-fno-delete-null-pointer-checks"
+    env_festival["CFLAGS_EXT2"] = "-std=gnu++98"
+    env_festival["CXXFLAGS_EXT0"] = "-O0"
     env_festival["CXXFLAGS_EXT1"] = "-fno-delete-null-pointer-checks"
     env_festival["CXXFLAGS_EXT2"] = "-std=gnu++98"
     pe(make_cmd, env_festival)
