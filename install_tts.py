@@ -6,6 +6,7 @@ import stat
 import time
 import hashlib
 import ntpath
+import wget
 
 # This script looks extremely defensive, but *should* let you rerun at
 # any stage along the way. Also a lot of code repetition due to eventual support
@@ -146,9 +147,8 @@ for dep in kk_all_deps:
     if not download:
         continue
 
-    wget_cmd = ["wget", "--quiet", dep]
     print("Downloading %s ..." % dep)
-    pe(wget_cmd)
+    wget.download(dep)
 
     checksum = sha256_checksum(ntpath.basename(dep))
     checksum_file = open(ntpath.basename(dep) + ".sha256sum", "w")
@@ -329,7 +329,7 @@ if not os.path.exists(htkdir + "HTKTools/HSGen"):
         pass
 
     os.chdir(htkdir)
-    pe(["./configure", "--disable-hlmtools", "--disable-hslab"])
+    pe(["./configure", "CFLAGS=-DARCH=linux", "--disable-hlmtools", "--disable-hslab"])
     pe(["make"])
 
 os.chdir(base_install_dir)
@@ -348,7 +348,8 @@ if not os.path.exists(sptkdir):
     untar_cmd = ["tar", "xzf", "SPTK-3.9.tar.gz"]
     pe(untar_cmd)
     os.chdir("SPTK-3.9")
-    os.mkdir("out")
+    if not os.path.exists("out"):
+        os.mkdir("out")
     pe(["./configure", "--prefix=%s" % sptk_subdir + "SPTK-3.9/out"])
     pe(["make"])
     os.chdir(sptk_subdir + "SPTK-3.9")

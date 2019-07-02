@@ -22,8 +22,8 @@ loop
 ## Prerequsites
 
 ```
-sudo apt-get install tcl-snack sox
-sudo pip install theano matplotlib bandmat
+sudo apt-get install tcl-snack sox doxygen xsltproc graphviz texlive texinfo texi2html libncurses5-dev csh
+sudo pip install theano matplotlib bandmat wget lxml
 ```
 
 Note pip modules are to be installed for Python 2.7.
